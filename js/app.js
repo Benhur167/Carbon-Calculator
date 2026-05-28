@@ -55,6 +55,89 @@ const TAB_QUESTION_PROMPTS = {
 };
 const QA_CHECKLIST_KEY = 'qaChecklistState';
 const QA_ALLOWED_EMAIL = 'rd.hamza@isys.sa';
+const LAST_LOADED_ORG_KEY = 'lastLoadedOrganizationId';
+const LEGACY_SITES_CACHE_KEY = 'carbonCalcSites';
+
+const ORG_SCOPED_PREF_KEYS = [
+    'companyName', 'companyNotes', 'companyLogo', 'hiddenWidgets',
+    'projectNumber', 'reportingPeriod', 'issueDate', 'reportVersion', 'reportStatus',
+    'scope1Enabled', 'scope2Enabled', 'scope3Enabled',
+    'hotelStayEnabled', 'wfhEnabled', 'materialsEnabled',
+    'orgRegisteredAddress', 'organizationProfile', 'buildingsAssessedCount',
+    'assessmentBaseYear', 'assessmentPeriodDetail', 'scopeStreamsSummary',
+    'assessmentGeneralNotes', 'assessmentExtraNote1', 'assessmentExtraNote2',
+    'orgSector', 'orgSubSector', 'orgIndustryCode', 'orgCount',
+    'eventInclusionWorkflow', 'eventCount', 'assetGroupName', 'assetAddress',
+    'buildingProfile', 'occupancyDimensions', 'assetOptionalFields',
+    'eventGeneralInfo', 'eventOperationalInputs', 'onboardingReferences',
+    'waterUnit', 'energyUnit', 'wasteUnit', 'transportUnit', 'refrigerantsUnit',
+    'otherEmissions', 'standardsPolicies', 'otherStandardRequired',
+    'carbonCalcCountry', 'carbonCalcReportingYear', 'carbonCalcOutputUnit',
+];
+
+function orgStorageKey(baseKey) {
+    const orgId = localStorage.getItem('organizationId') || 'default';
+    return `${baseKey}__org_${orgId}`;
+}
+
+function getOrgLocalItem(baseKey, fallback = '') {
+    const scoped = localStorage.getItem(orgStorageKey(baseKey));
+    if (scoped !== null) return scoped;
+    return fallback;
+}
+
+function setOrgLocalItem(baseKey, value) {
+    localStorage.setItem(orgStorageKey(baseKey), value == null ? '' : String(value));
+}
+
+function clearLegacyGlobalFormCache() {
+    ORG_SCOPED_PREF_KEYS.forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem(LEGACY_SITES_CACHE_KEY);
+}
+
+function createDefaultSitesState(companyName) {
+    const name = companyName || 'My Company';
+    return {
+        'site-1': {
+            name: 'Headquarters',
+            companyName: name,
+            notes: '',
+            data: { water: [], energy: [], waste: [], transport: [], refrigerants: [] },
+            financials: {
+                bankBalance: 0,
+                savingsBalance: 0,
+                cashIn: 0,
+                cashOut: 0,
+                invoicesOwed: 0,
+                billsToPay: 0,
+            },
+            tabQuestions: {},
+        },
+    };
+}
+
+function resetAppStateForCompany(companyName) {
+    appState.sites = createDefaultSitesState(companyName);
+    appState.currentSite = 'site-1';
+}
+
+function ensureOrganizationSession(orgId, companyName) {
+    if (!orgId) return;
+    const previousOrgId = localStorage.getItem(LAST_LOADED_ORG_KEY);
+    if (previousOrgId && previousOrgId !== orgId) {
+        clearLegacyGlobalFormCache();
+        resetAppStateForCompany(companyName);
+    }
+    localStorage.removeItem(LEGACY_SITES_CACHE_KEY);
+    localStorage.setItem(LAST_LOADED_ORG_KEY, orgId);
+    if (companyName) {
+        setOrgLocalItem('companyName', companyName);
+        localStorage.setItem('companyName', companyName);
+    }
+}
+
+window.getOrgLocalItem = getOrgLocalItem;
+window.setOrgLocalItem = setOrgLocalItem;
 
 function normalizeAccountEmail(value) {
     return String(value || '').trim().toLowerCase();
@@ -226,9 +309,10 @@ function clearAuthSession() {
     localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
     localStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
     // Clear site data (old single-user key + new org-scoped keys)
-    localStorage.removeItem('carbonCalcSites');
+    localStorage.removeItem(LEGACY_SITES_CACHE_KEY);
     const orgId = localStorage.getItem('organizationId') || 'default';
     localStorage.removeItem(`carbonCalcSites_${orgId}`);
+    localStorage.removeItem(LAST_LOADED_ORG_KEY);
     localStorage.removeItem('organizationId');
     localStorage.removeItem('organizationName');
     localStorage.removeItem('userName');
@@ -396,13 +480,17 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
             
             if (data.user) {
                 localStorage.setItem('userName', data.user.full_name || '');
-                localStorage.setItem('companyName', data.user.company_name || 'My Company');
                 localStorage.setItem('organizationId', data.user.organization_id || '');
                 localStorage.setItem('organizationName', data.user.organization_name || '');
                 localStorage.setItem('isOrgAdmin', data.user.is_org_admin ? 'true' : 'false');
                 if (data.user.email) {
                     localStorage.setItem('userEmail', data.user.email);
                 }
+                ensureOrganizationSession(
+                    data.user.organization_id || '',
+                    data.user.company_name || 'My Company'
+                );
+                localStorage.setItem('companyName', data.user.company_name || 'My Company');
             }
 
             const allowOrgMainApp = localStorage.getItem('orgOpenMainApp') === 'true';
@@ -470,6 +558,8 @@ document.getElementById('signupForm')?.addEventListener('submit', async function
         const data = parseJsonResponse(raw);
         
         if (response.ok) {
+            localStorage.removeItem(LEGACY_SITES_CACHE_KEY);
+            localStorage.removeItem(LAST_LOADED_ORG_KEY);
             signupSuccess.textContent =
                 data.msg ||
                 (appState.currentLanguage === 'pt'
@@ -615,7 +705,7 @@ document.getElementById('backToLoginFromVerify')?.addEventListener('click', func
 // BACKEND DATA PERSISTENCE
 async function loadUserDataFromBackend() {
     const token = getActiveAuthToken();
-    if (!token) return;
+    if (!token) return false;
 
     let dataResponse;
     let factorsResponse;
@@ -630,35 +720,29 @@ async function loadUserDataFromBackend() {
         ]);
     } catch (err) {
         console.error('Error loading data from backend:', err);
-        return;
+        return false;
     }
 
     if (dataResponse.status === 401 || factorsResponse.status === 401) {
         forceLogoutForExpiredSession(true);
-        return;
+        return false;
     }
 
+    let sitesLoaded = false;
     try {
         if (dataResponse.ok) {
             const data = await dataResponse.json();
             if (data.organization_id) {
                 localStorage.setItem('organizationId', data.organization_id);
             }
-            // ALWAYS overwrite local state with backend state to avoid "ghost" data from deleted clusters
-            if (data.sites) {
-                appState.sites = Object.keys(data.sites).length > 0 ? data.sites : {
-                    'site-1': {
-                        name: 'Headquarters',
-                        companyName: localStorage.getItem('companyName') || 'My Company',
-                        notes: '',
-                        data: { water: [], energy: [], waste: [], transport: [], refrigerants: [] },
-                        financials: { bankBalance: 0, savingsBalance: 0, cashIn: 0, cashOut: 0, invoicesOwed: 0, billsToPay: 0 },
-                        tabQuestions: {}
-                    }
-                };
-                saveSitesToLocalStorage(); // Sync with local cache
-                rebuildSitesUIFromState();
-            }
+            // ALWAYS overwrite local state with backend state (source of truth per organization)
+            const companyName = localStorage.getItem('companyName') || 'My Company';
+            appState.sites = (data.sites && Object.keys(data.sites).length > 0)
+                ? data.sites
+                : createDefaultSitesState(companyName);
+            saveSitesToLocalStorage();
+            rebuildSitesUIFromState();
+            sitesLoaded = true;
         }
     } catch (err) {
         console.error('Error parsing sites data from backend:', err);
@@ -676,6 +760,16 @@ async function loadUserDataFromBackend() {
         }
     } catch (err) {
         console.error('Error parsing factors from backend:', err);
+    }
+    return sitesLoaded;
+}
+
+async function syncOrganizationDataFromServer() {
+    resetAppStateForCompany(localStorage.getItem('companyName') || 'My Company');
+    rebuildSitesUIFromState();
+    const loadedFromBackend = await loadUserDataFromBackend();
+    if (!loadedFromBackend) {
+        loadSitesFromLocalStorage();
     }
 }
 
@@ -1404,13 +1498,16 @@ function rebuildSitesUIFromState() {
 
 function loadSitesFromLocalStorage() {
     const orgId = localStorage.getItem('organizationId') || 'default';
-    const saved = localStorage.getItem(`carbonCalcSites_${orgId}`) || localStorage.getItem('carbonCalcSites');
+    const saved = localStorage.getItem(`carbonCalcSites_${orgId}`);
     if (saved) {
         try {
             appState.sites = JSON.parse(saved);
         } catch (e) {
             console.error('loadSitesFromLocalStorage:', e);
+            appState.sites = createDefaultSitesState(localStorage.getItem('companyName'));
         }
+    } else {
+        appState.sites = createDefaultSitesState(localStorage.getItem('companyName'));
     }
     rebuildSitesUIFromState();
 }
@@ -1420,13 +1517,14 @@ function loadSiteData(siteId) {
     if (!site) return;
     
     // Load site-specific company name if exists, otherwise use global
-    const siteCompanyName = site.companyName || localStorage.getItem('companyName') || 'My Company';
+    const siteCompanyName = site.companyName || getOrgLocalItem('companyName', localStorage.getItem('companyName') || 'My Company');
     document.getElementById('companyNameInput').value = siteCompanyName;
     document.getElementById('companyName').textContent = siteCompanyName;
+    setOrgLocalItem('companyName', siteCompanyName);
     localStorage.setItem('companyName', siteCompanyName);
     
     // Load site-specific notes if exists, otherwise use global
-    const siteNotes = site.notes !== undefined ? site.notes : (localStorage.getItem('companyNotes') || '');
+    const siteNotes = site.notes !== undefined ? site.notes : getOrgLocalItem('companyNotes', '');
     document.getElementById('companyNotes').value = siteNotes;
     
     // Clear all tables
@@ -1903,7 +2001,7 @@ function toggleWidget(button) {
         widget.classList.add('hidden');
     }
     
-    localStorage.setItem('hiddenWidgets', JSON.stringify(appState.hiddenWidgets));
+    setOrgLocalItem('hiddenWidgets', JSON.stringify(appState.hiddenWidgets));
 }
 
 function toggleDashboardWidgets() {
@@ -1991,7 +2089,7 @@ function applyWidgetSelection() {
         }
     });
     
-    localStorage.setItem('hiddenWidgets', JSON.stringify(appState.hiddenWidgets));
+    setOrgLocalItem('hiddenWidgets', JSON.stringify(appState.hiddenWidgets));
     document.querySelector('.widget-modal').remove();
     
     // Update dashboard if active
@@ -2017,6 +2115,7 @@ window.toggleDashboardWidgets = toggleDashboardWidgets;
 document.getElementById('companyNameInput')?.addEventListener('input', async function() {
     const name = this.value || 'My Company';
     document.getElementById('companyName').textContent = name;
+    setOrgLocalItem('companyName', name);
     localStorage.setItem('companyName', name);
     // Also save to current site if exists
     if (appState.currentSite && appState.sites[appState.currentSite]) {
@@ -2045,7 +2144,7 @@ document.getElementById('companyNameInput')?.addEventListener('input', async fun
 // Company Notes - Save to localStorage
 document.getElementById('companyNotes')?.addEventListener('input', function() {
     const notes = this.value || '';
-    localStorage.setItem('companyNotes', notes);
+    setOrgLocalItem('companyNotes', notes);
     // Also save to current site if exists
     if (appState.currentSite && appState.sites[appState.currentSite]) {
         appState.sites[appState.currentSite].notes = notes;
@@ -2055,7 +2154,7 @@ document.getElementById('companyNotes')?.addEventListener('input', function() {
 
 document.getElementById('companyNotes')?.addEventListener('blur', function() {
     const notes = this.value || '';
-    localStorage.setItem('companyNotes', notes);
+    setOrgLocalItem('companyNotes', notes);
     if (appState.currentSite && appState.sites[appState.currentSite]) {
         appState.sites[appState.currentSite].notes = notes;
         saveSitesToLocalStorage();
@@ -2081,7 +2180,7 @@ document.getElementById('logoUpload')?.addEventListener('change', function(e) {
         reader.onload = function(event) {
             const logoImg = document.getElementById('companyLogoImg');
             logoImg.src = event.target.result;
-            localStorage.setItem('companyLogo', event.target.result);
+            setOrgLocalItem('companyLogo', event.target.result);
         };
         reader.readAsDataURL(file);
     }
@@ -2109,8 +2208,8 @@ function initializeApp() {
         toggleDarkMode();
     }
     
-    // Load company name
-    const savedCompanyName = localStorage.getItem('companyName');
+    // Load company name (organization-scoped)
+    const savedCompanyName = getOrgLocalItem('companyName', localStorage.getItem('companyName') || 'My Company');
     if (savedCompanyName) {
         document.getElementById('companyNameInput').value = savedCompanyName;
         document.getElementById('companyName').textContent = savedCompanyName;
@@ -2122,41 +2221,39 @@ function initializeApp() {
         orgUserSettingsBtn.style.display = isOrgAdmin ? 'inline-flex' : 'none';
     }
     
-    // Load company notes
-    const savedCompanyNotes = localStorage.getItem('companyNotes');
-    if (savedCompanyNotes !== null) {
-        document.getElementById('companyNotes').value = savedCompanyNotes;
-    }
+    // Load company notes (organization-scoped)
+    const savedCompanyNotes = getOrgLocalItem('companyNotes', '');
+    document.getElementById('companyNotes').value = savedCompanyNotes;
 
     // Load General Info fields (drives final report + placeholders)
     const projectNumberEl = document.getElementById('projectNumberInput');
     if (projectNumberEl) {
-        projectNumberEl.value = localStorage.getItem('projectNumber') || '';
+        projectNumberEl.value = getOrgLocalItem('projectNumber', '');
     }
     const reportingPeriodEl = document.getElementById('reportingPeriodInput');
     if (reportingPeriodEl) {
-        reportingPeriodEl.value = localStorage.getItem('reportingPeriod') || '';
+        reportingPeriodEl.value = getOrgLocalItem('reportingPeriod', '');
     }
     const issueDateEl = document.getElementById('issueDateInput');
     if (issueDateEl) {
-        issueDateEl.value = localStorage.getItem('issueDate') || '';
+        issueDateEl.value = getOrgLocalItem('issueDate', '');
     }
     const reportVersionEl = document.getElementById('reportVersionInput');
     if (reportVersionEl) {
-        reportVersionEl.value = localStorage.getItem('reportVersion') || '1.0';
+        reportVersionEl.value = getOrgLocalItem('reportVersion', '1.0');
     }
     const reportStatusEl = document.getElementById('reportStatusSelect');
     if (reportStatusEl) {
-        reportStatusEl.value = localStorage.getItem('reportStatus') || 'Draft';
+        reportStatusEl.value = getOrgLocalItem('reportStatus', 'Draft');
     }
     
-    const savedLogo = localStorage.getItem('companyLogo');
+    const savedLogo = getOrgLocalItem('companyLogo', '');
     if (savedLogo) {
         document.getElementById('companyLogoImg').src = savedLogo;
     }
     
     // Load hidden widgets
-    const savedHiddenWidgets = localStorage.getItem('hiddenWidgets');
+    const savedHiddenWidgets = getOrgLocalItem('hiddenWidgets', '');
     if (savedHiddenWidgets) {
         appState.hiddenWidgets = JSON.parse(savedHiddenWidgets);
         appState.hiddenWidgets.forEach(widgetId => {
@@ -2175,18 +2272,18 @@ function initializeApp() {
     const hotelStayEnabledEl = document.getElementById('hotelStayEnabledInput');
     const wfhEnabledEl = document.getElementById('wfhEnabledInput');
     const materialsEnabledEl = document.getElementById('materialsEnabledInput');
-    if (s1El) s1El.checked = localStorage.getItem('scope1Enabled') !== 'false';
-    if (s2El) s2El.checked = localStorage.getItem('scope2Enabled') !== 'false';
-    if (s3El) s3El.checked = localStorage.getItem('scope3Enabled') !== 'false';
-    if (hotelStayEnabledEl) hotelStayEnabledEl.checked = localStorage.getItem('hotelStayEnabled') !== 'false';
-    if (wfhEnabledEl) wfhEnabledEl.checked = localStorage.getItem('wfhEnabled') !== 'false';
-    if (materialsEnabledEl) materialsEnabledEl.checked = localStorage.getItem('materialsEnabled') !== 'false';
+    if (s1El) s1El.checked = getOrgLocalItem('scope1Enabled', 'true') !== 'false';
+    if (s2El) s2El.checked = getOrgLocalItem('scope2Enabled', 'true') !== 'false';
+    if (s3El) s3El.checked = getOrgLocalItem('scope3Enabled', 'true') !== 'false';
+    if (hotelStayEnabledEl) hotelStayEnabledEl.checked = getOrgLocalItem('hotelStayEnabled', 'true') !== 'false';
+    if (wfhEnabledEl) wfhEnabledEl.checked = getOrgLocalItem('wfhEnabled', 'true') !== 'false';
+    if (materialsEnabledEl) materialsEnabledEl.checked = getOrgLocalItem('materialsEnabled', 'true') !== 'false';
 
     const bindScope = (el, key) => {
         if (!el || el.dataset.scopeBound === '1') return;
         el.dataset.scopeBound = '1';
         el.addEventListener('change', () => {
-            localStorage.setItem(key, el.checked ? 'true' : 'false');
+            setOrgLocalItem(key, el.checked ? 'true' : 'false');
             if (window.carbonCalc && window.carbonCalc.calculateAllTotals) window.carbonCalc.calculateAllTotals();
             if (window.updateDashboard) window.updateDashboard();
         });
@@ -2202,8 +2299,8 @@ function initializeApp() {
     const bindTextInput = (el, key) => {
         if (!el || el.dataset.bound === '1') return;
         el.dataset.bound = '1';
-        el.addEventListener('input', () => localStorage.setItem(key, el.value || ''));
-        el.addEventListener('change', () => localStorage.setItem(key, el.value || ''));
+        el.addEventListener('input', () => setOrgLocalItem(key, el.value || ''));
+        el.addEventListener('change', () => setOrgLocalItem(key, el.value || ''));
     };
     bindTextInput(projectNumberEl, 'projectNumber');
     bindTextInput(reportingPeriodEl, 'reportingPeriod');
@@ -2211,7 +2308,7 @@ function initializeApp() {
     bindTextInput(reportVersionEl, 'reportVersion');
     if (reportStatusEl && reportStatusEl.dataset.bound !== '1') {
         reportStatusEl.dataset.bound = '1';
-        reportStatusEl.addEventListener('change', () => localStorage.setItem('reportStatus', reportStatusEl.value));
+        reportStatusEl.addEventListener('change', () => setOrgLocalItem('reportStatus', reportStatusEl.value));
     }
 
     const orgRegisteredAddressEl = document.getElementById('orgRegisteredAddressInput');
@@ -2246,55 +2343,37 @@ function initializeApp() {
     const standardsPoliciesEl = document.getElementById('standardsPoliciesInput');
     const otherStandardRequiredEl = document.getElementById('otherStandardRequiredInput');
 
-    if (orgRegisteredAddressEl) {
-        orgRegisteredAddressEl.value = localStorage.getItem('orgRegisteredAddress') || '';
-    }
-    if (organizationProfileEl) {
-        organizationProfileEl.value = localStorage.getItem('organizationProfile') || '';
-    }
-    if (buildingsAssessedEl) {
-        buildingsAssessedEl.value = localStorage.getItem('buildingsAssessedCount') || '';
-    }
-    if (assessmentBaseYearEl) {
-        assessmentBaseYearEl.value = localStorage.getItem('assessmentBaseYear') || '';
-    }
-    if (assessmentPeriodDetailEl) {
-        assessmentPeriodDetailEl.value = localStorage.getItem('assessmentPeriodDetail') || '';
-    }
-    if (scopeStreamsSummaryEl) {
-        scopeStreamsSummaryEl.value = localStorage.getItem('scopeStreamsSummary') || '';
-    }
-    if (assessmentGeneralNotesEl) {
-        assessmentGeneralNotesEl.value = localStorage.getItem('assessmentGeneralNotes') || '';
-    }
-    if (assessmentExtraNote1El) {
-        assessmentExtraNote1El.value = localStorage.getItem('assessmentExtraNote1') || '';
-    }
-    if (assessmentExtraNote2El) {
-        assessmentExtraNote2El.value = localStorage.getItem('assessmentExtraNote2') || '';
-    }
-    if (orgSectorEl) orgSectorEl.value = localStorage.getItem('orgSector') || '';
-    if (orgSubSectorEl) orgSubSectorEl.value = localStorage.getItem('orgSubSector') || '';
-    if (orgIndustryCodeEl) orgIndustryCodeEl.value = localStorage.getItem('orgIndustryCode') || '';
-    if (orgCountEl) orgCountEl.value = localStorage.getItem('orgCount') || '';
-    if (eventInclusionWorkflowEl) eventInclusionWorkflowEl.value = localStorage.getItem('eventInclusionWorkflow') || '';
-    if (eventCountEl) eventCountEl.value = localStorage.getItem('eventCount') || '';
-    if (assetGroupNameEl) assetGroupNameEl.value = localStorage.getItem('assetGroupName') || '';
-    if (assetAddressEl) assetAddressEl.value = localStorage.getItem('assetAddress') || '';
-    if (buildingProfileEl) buildingProfileEl.value = localStorage.getItem('buildingProfile') || '';
-    if (occupancyDimensionsEl) occupancyDimensionsEl.value = localStorage.getItem('occupancyDimensions') || '';
-    if (assetOptionalFieldsEl) assetOptionalFieldsEl.value = localStorage.getItem('assetOptionalFields') || '';
-    if (eventGeneralInfoEl) eventGeneralInfoEl.value = localStorage.getItem('eventGeneralInfo') || '';
-    if (eventOperationalInputsEl) eventOperationalInputsEl.value = localStorage.getItem('eventOperationalInputs') || '';
-    if (onboardingReferencesEl) onboardingReferencesEl.value = localStorage.getItem('onboardingReferences') || '';
-    if (waterUnitEl) waterUnitEl.value = localStorage.getItem('waterUnit') || CATEGORY_DEFAULT_UNITS.water;
-    if (energyUnitEl) energyUnitEl.value = localStorage.getItem('energyUnit') || CATEGORY_DEFAULT_UNITS.energy;
-    if (wasteUnitEl) wasteUnitEl.value = localStorage.getItem('wasteUnit') || CATEGORY_DEFAULT_UNITS.waste;
-    if (transportUnitEl) transportUnitEl.value = localStorage.getItem('transportUnit') || CATEGORY_DEFAULT_UNITS.transport;
-    if (refrigerantsUnitEl) refrigerantsUnitEl.value = localStorage.getItem('refrigerantsUnit') || CATEGORY_DEFAULT_UNITS.refrigerants;
-    if (otherEmissionsEl) otherEmissionsEl.value = localStorage.getItem('otherEmissions') || '';
-    if (standardsPoliciesEl) standardsPoliciesEl.value = localStorage.getItem('standardsPolicies') || '';
-    if (otherStandardRequiredEl) otherStandardRequiredEl.value = localStorage.getItem('otherStandardRequired') || '';
+    if (orgRegisteredAddressEl) orgRegisteredAddressEl.value = getOrgLocalItem('orgRegisteredAddress', '');
+    if (organizationProfileEl) organizationProfileEl.value = getOrgLocalItem('organizationProfile', '');
+    if (buildingsAssessedEl) buildingsAssessedEl.value = getOrgLocalItem('buildingsAssessedCount', '');
+    if (assessmentBaseYearEl) assessmentBaseYearEl.value = getOrgLocalItem('assessmentBaseYear', '');
+    if (assessmentPeriodDetailEl) assessmentPeriodDetailEl.value = getOrgLocalItem('assessmentPeriodDetail', '');
+    if (scopeStreamsSummaryEl) scopeStreamsSummaryEl.value = getOrgLocalItem('scopeStreamsSummary', '');
+    if (assessmentGeneralNotesEl) assessmentGeneralNotesEl.value = getOrgLocalItem('assessmentGeneralNotes', '');
+    if (assessmentExtraNote1El) assessmentExtraNote1El.value = getOrgLocalItem('assessmentExtraNote1', '');
+    if (assessmentExtraNote2El) assessmentExtraNote2El.value = getOrgLocalItem('assessmentExtraNote2', '');
+    if (orgSectorEl) orgSectorEl.value = getOrgLocalItem('orgSector', '');
+    if (orgSubSectorEl) orgSubSectorEl.value = getOrgLocalItem('orgSubSector', '');
+    if (orgIndustryCodeEl) orgIndustryCodeEl.value = getOrgLocalItem('orgIndustryCode', '');
+    if (orgCountEl) orgCountEl.value = getOrgLocalItem('orgCount', '');
+    if (eventInclusionWorkflowEl) eventInclusionWorkflowEl.value = getOrgLocalItem('eventInclusionWorkflow', '');
+    if (eventCountEl) eventCountEl.value = getOrgLocalItem('eventCount', '');
+    if (assetGroupNameEl) assetGroupNameEl.value = getOrgLocalItem('assetGroupName', '');
+    if (assetAddressEl) assetAddressEl.value = getOrgLocalItem('assetAddress', '');
+    if (buildingProfileEl) buildingProfileEl.value = getOrgLocalItem('buildingProfile', '');
+    if (occupancyDimensionsEl) occupancyDimensionsEl.value = getOrgLocalItem('occupancyDimensions', '');
+    if (assetOptionalFieldsEl) assetOptionalFieldsEl.value = getOrgLocalItem('assetOptionalFields', '');
+    if (eventGeneralInfoEl) eventGeneralInfoEl.value = getOrgLocalItem('eventGeneralInfo', '');
+    if (eventOperationalInputsEl) eventOperationalInputsEl.value = getOrgLocalItem('eventOperationalInputs', '');
+    if (onboardingReferencesEl) onboardingReferencesEl.value = getOrgLocalItem('onboardingReferences', '');
+    if (waterUnitEl) waterUnitEl.value = getOrgLocalItem('waterUnit', CATEGORY_DEFAULT_UNITS.water);
+    if (energyUnitEl) energyUnitEl.value = getOrgLocalItem('energyUnit', CATEGORY_DEFAULT_UNITS.energy);
+    if (wasteUnitEl) wasteUnitEl.value = getOrgLocalItem('wasteUnit', CATEGORY_DEFAULT_UNITS.waste);
+    if (transportUnitEl) transportUnitEl.value = getOrgLocalItem('transportUnit', CATEGORY_DEFAULT_UNITS.transport);
+    if (refrigerantsUnitEl) refrigerantsUnitEl.value = getOrgLocalItem('refrigerantsUnit', CATEGORY_DEFAULT_UNITS.refrigerants);
+    if (otherEmissionsEl) otherEmissionsEl.value = getOrgLocalItem('otherEmissions', '');
+    if (standardsPoliciesEl) standardsPoliciesEl.value = getOrgLocalItem('standardsPolicies', '');
+    if (otherStandardRequiredEl) otherStandardRequiredEl.value = getOrgLocalItem('otherStandardRequired', '');
 
     bindTextInput(orgRegisteredAddressEl, 'orgRegisteredAddress');
     bindTextInput(organizationProfileEl, 'organizationProfile');
@@ -2327,7 +2406,7 @@ function initializeApp() {
         if (!el || el.dataset.bound === '1') return;
         el.dataset.bound = '1';
         el.addEventListener('change', () => {
-            localStorage.setItem(storageKey, el.value || '');
+            setOrgLocalItem(storageKey, el.value || '');
             document.querySelectorAll(`#${category}Table .row-unit-select`).forEach((unitEl) => {
                 unitEl.value = el.value || unitEl.value;
             });
@@ -2377,11 +2456,8 @@ function initializeApp() {
     }
     applyQaVisibility();
     
-    // Load local data first for fast UI responsiveness
-    loadSitesFromLocalStorage();
-    
-    // Sync with MongoDB backend in the background
-    loadUserDataFromBackend().then(() => {
+    // Load organization data from MongoDB (fallback to org-scoped cache only if API unavailable)
+    syncOrganizationDataFromServer().then(() => {
         if (appState.currentSite) {
             loadSiteData(appState.currentSite);
         }
@@ -2529,13 +2605,17 @@ window.addEventListener('DOMContentLoaded', function() {
         appState.loggedIn = true;
         touchSession();
         startSessionMonitor();
+        ensureOrganizationSession(
+            localStorage.getItem('organizationId') || '',
+            localStorage.getItem('companyName') || 'My Company'
+        );
         document.getElementById('loginScreen').style.display = 'none';
         document.getElementById('mainApp').style.display = 'flex';
         if (document.getElementById('loginEmail')) {
             document.getElementById('loginEmail').value = savedEmail;
         }
 
-        // Same as manual login: paint the UI from cache, then sync in the background (see initializeApp).
+        // Same as manual login: load MongoDB org data first (see syncOrganizationDataFromServer).
         initializeApp();
     } else {
         // Show login screen

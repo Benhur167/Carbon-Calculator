@@ -356,10 +356,27 @@ function sanitizeMergedCountryFactors(mergedBucket, defaults) {
     return out;
 }
 
+function readOrgPref(key, fallback = '') {
+    if (typeof window.getOrgLocalItem === 'function') {
+        const scoped = window.getOrgLocalItem(key, null);
+        if (scoped !== null && scoped !== '') return scoped;
+    }
+    const legacy = localStorage.getItem(key);
+    return legacy !== null && legacy !== '' ? legacy : fallback;
+}
+
+function writeOrgPref(key, value) {
+    if (typeof window.setOrgLocalItem === 'function') {
+        window.setOrgLocalItem(key, value);
+    } else {
+        localStorage.setItem(key, value);
+    }
+}
+
 // Current country selection (default UK)
 let currentCountry = 'UK';
-let currentOutputUnit = localStorage.getItem('carbonCalcOutputUnit') || 'tCO2e';
-let currentReportingYear = Number(localStorage.getItem('carbonCalcReportingYear') || BASE_YEAR);
+let currentOutputUnit = readOrgPref('carbonCalcOutputUnit', 'tCO2e');
+let currentReportingYear = Number(readOrgPref('carbonCalcReportingYear', String(BASE_YEAR)));
 
 function resolveCategoryFromTableId(tableId) {
     if (!tableId) return '';
@@ -390,7 +407,7 @@ function getReportingYear() {
 
 function setReportingYear(year) {
     currentReportingYear = normalizeRowYear(year);
-    localStorage.setItem('carbonCalcReportingYear', String(currentReportingYear));
+    writeOrgPref('carbonCalcReportingYear', String(currentReportingYear));
     calculateAllTotals();
     if (typeof updateDashboard === 'function') updateDashboard();
 }
@@ -401,7 +418,7 @@ function getOutputUnit() {
 
 function setOutputUnit(unit) {
     currentOutputUnit = unit === 'kgCO2e' ? 'kgCO2e' : 'tCO2e';
-    localStorage.setItem('carbonCalcOutputUnit', currentOutputUnit);
+    writeOrgPref('carbonCalcOutputUnit', currentOutputUnit);
     calculateAllTotals();
     if (typeof updateDashboard === 'function') updateDashboard();
 }
@@ -456,13 +473,13 @@ function factorWithDefaults(bucket, key, defaults) {
 
 function sourceToggleEnabled(sourceKey) {
     if (sourceKey === 'business_travel_hotel_night') {
-        return localStorage.getItem('hotelStayEnabled') !== 'false';
+        return readOrgPref('hotelStayEnabled', 'true') !== 'false';
     }
     if (sourceKey === 'wfh_day') {
-        return localStorage.getItem('wfhEnabled') !== 'false';
+        return readOrgPref('wfhEnabled', 'true') !== 'false';
     }
     if (sourceKey === 'materials_paper_kg') {
-        return localStorage.getItem('materialsEnabled') !== 'false';
+        return readOrgPref('materialsEnabled', 'true') !== 'false';
     }
     return true;
 }
@@ -756,7 +773,7 @@ function getYearComparison() {
 
 function setCountry(country) {
     currentCountry = country.toUpperCase();
-    localStorage.setItem('carbonCalcCountry', currentCountry);
+    writeOrgPref('carbonCalcCountry', currentCountry);
     
     // Recalculate all values
     calculateAllTotals();
@@ -764,8 +781,7 @@ function setCountry(country) {
 }
 
 function getCountry() {
-    const saved = localStorage.getItem('carbonCalcCountry');
-    return saved || 'UK';
+    return readOrgPref('carbonCalcCountry', 'UK') || 'UK';
 }
 
 // ============================================
