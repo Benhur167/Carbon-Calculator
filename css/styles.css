@@ -549,8 +549,10 @@ body {
 /* Center Content */
 .center-content {
     flex: 1;
+    min-width: 0;
     padding: 24px;
     overflow-y: auto;
+    overflow-x: hidden;
     background: var(--bg-main);
 }
 
@@ -559,7 +561,8 @@ body {
     display: flex;
     gap: 16px;
     margin-bottom: 24px;
-    align-items: center;
+    align-items: flex-start;
+    flex-wrap: wrap;
 }
 
 .company-logo-upload {
@@ -601,13 +604,43 @@ body {
 }
 
 .info-card-inline {
-    flex: 1;
+    flex: 1 1 320px;
+    min-width: 0;
     background: var(--bg-card);
     padding: 16px 20px;
     border-radius: 12px;
     box-shadow: var(--shadow-sm);
     display: flex;
-    gap: 20px;
+    flex-wrap: wrap;
+    gap: 16px 20px;
+    align-items: flex-start;
+}
+
+/* Company toolbar: wrap fields instead of clipping off-screen */
+.info-card-inline > .form-inline-group {
+    flex: 1 1 220px;
+    min-width: 0;
+    align-items: flex-start;
+}
+
+.info-card-inline .form-inline-group label {
+    min-width: 0;
+}
+
+.info-card-inline .form-inline-group input,
+.info-card-inline .form-inline-group select {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+}
+
+.info-card-inline .form-inline-group > div {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.info-card-inline .factors-actions {
+    flex-shrink: 0;
 }
 
 .form-inline-group {
@@ -1175,6 +1208,12 @@ body {
     }
 }
 
+@media (max-width: 1200px) {
+    .info-card-inline > .form-inline-group {
+        flex: 1 1 100%;
+    }
+}
+
 @media (max-width: 768px) {
     .sidebar {
         position: fixed;
@@ -1190,7 +1229,11 @@ body {
     }
     
     .company-info-section {
-        grid-template-columns: 1fr;
+        flex-direction: column;
+    }
+
+    .info-card-inline {
+        flex-basis: 100%;
     }
     
     .tabs-nav {

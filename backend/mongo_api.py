@@ -65,6 +65,29 @@ app = Flask(__name__)
 # Enable CORS for all origins in development/testing
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
+
+def utc_now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.UTC)
+
+
+def resolve_jwt_secret(raw_secret: str | None, app_env: str | None) -> str:
+    """Return safe JWT secret; enforce >=32 chars outside dev/test/local."""
+    env = (app_env or os.environ.get('APP_ENV') or os.environ.get('FLASK_ENV') or 'development').strip().lower()
+    secret = (raw_secret or '').strip()
+    if not secret:
+        # Dev ergonomics: deterministic local fallback, never used in production.
+        secret = 'dev-local-jwt-secret-change-me-32+'
+    min_len = 32
+    if env in ('development', 'dev', 'test', 'testing', 'local'):
+        if len(secret) < min_len:
+            secret = (secret + ('x' * min_len))[:min_len]
+        return secret
+    if len(secret) < min_len:
+        raise RuntimeError(
+            'JWT_SECRET_KEY must be at least 32 characters in non-dev environments.'
+        )
+    return secret
+
 # MongoDB Configuration
 CONNECTION_STRING = os.environ.get('MONGODB_URI', 'mongodb://localhost:27017/carbon_calculator')
 
@@ -234,7 +257,7 @@ def init_org_factors(organization_id: str):
             "version": data.get("version", "2025"),
             "source": data.get("source", "Default"),
             "factors": data["factors"],
-            "updated_at": datetime.datetime.utcnow()
+            "updated_at": utc_now()
         }
         col.update_one(
             {"organization_id": organization_id, "country_key": key},
@@ -246,7 +269,7 @@ def init_org_factors(organization_id: str):
     return inserted_factors
 
 # Security
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'default-dev-key')
+app.config['JWT_SECRET_KEY'] = resolve_jwt_secret(os.environ.get('JWT_SECRET_KEY'), os.environ.get('APP_ENV'))
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(minutes=30)
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
@@ -467,7 +490,7 @@ def notify_sustain_quality_new_registration(email: str, organization_name: str |
     recipient = (os.environ.get('SUSTAIN_QUALITY_NOTIFY_EMAIL') or '').strip()
     if not recipient:
         return False
-    timestamp = datetime.datetime.utcnow().isoformat()
+    timestamp = utc_now().isoformat()
     body = (
         'New CarbonCalculator registration received.\n\n'
         f'Email: {email}\n'
@@ -878,12 +901,12 @@ def signup():
     else:
         insert_res = orgs_col.insert_one({
             "name": company_name,
-            "created_at": datetime.datetime.utcnow(),
+            "created_at": utc_now(),
         })
         org_id = str(insert_res.inserted_id)
 
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-    now = datetime.datetime.utcnow()
+    now = utc_now()
     users_col.insert_one({
         "email": em,
         "username": username or em.split('@')[0],
@@ -1021,7 +1044,7 @@ def org_users():
         return jsonify({"msg": "Email already exists"}), 400
 
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-    now = datetime.datetime.utcnow()
+    now = utc_now()
     users_col.insert_one({
         "email": email or None,
         "username": username,
@@ -1168,7 +1191,7 @@ def save_user_data():
     data = _sanitize_site_data_payload(data)
     data['email'] = user_email or current_identity  # keep for backwards compatibility
     data['organization_id'] = org_id
-    data['updated_at'] = datetime.datetime.utcnow()
+    data['updated_at'] = utc_now()
     
     data_col.update_one({"organization_id": org_id}, {"$set": data}, upsert=True)
     return jsonify({"msg": "Data saved"}), 200
@@ -1213,7 +1236,7 @@ def handle_factors():
             "version": data.get("version", "Custom"),
             "source": data.get("source", "Imported"),
             "factors": factors,
-            "updated_at": datetime.datetime.utcnow()
+            "updated_at": utc_now()
         }
         
         factors_col.update_one(
