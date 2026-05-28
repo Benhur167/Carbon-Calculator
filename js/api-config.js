@@ -142,7 +142,9 @@
         clearOrgAdminMainAppUnlock();
     }
 
-    async function carbonApiFetch(url, options = {}, timeoutMs = 120000) {
+    const LOGIN_TIMEOUT_MS = 120000;
+
+    async function carbonApiFetch(url, options = {}, timeoutMs = LOGIN_TIMEOUT_MS) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
@@ -157,7 +159,77 @@
         }
     }
 
+    function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /** POST /login with long timeout; retries once while Render cold-starts. */
+    async function loginPost(identifier, password) {
+        const body = { login: identifier, password };
+        const bases = loginApiBaseCandidates();
+        let lastErr = null;
+        for (const base of bases) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                if (attempt > 0) {
+                    await sleep(4000);
+                }
+                try {
+                    const response = await carbonApiFetch(
+                        `${base}/login`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body),
+                        },
+                        LOGIN_TIMEOUT_MS
+                    );
+                    if (base !== resolveApiBaseUrl()) {
+                        try {
+                            global.localStorage.setItem('carbonApiBase', base);
+                        } catch (_e) {
+                            /* ignore */
+                        }
+                    }
+                    return response;
+                } catch (err) {
+                    lastErr = err;
+                    console.warn('Login attempt failed:', base, attempt, err);
+                }
+            }
+        }
+        throw lastErr || new Error('Login request failed');
+    }
+
+    function loginConnectionErrorMessage(err, language) {
+        let lang = language;
+        if (!lang) {
+            try {
+                lang = global.localStorage.getItem('language') || 'en';
+            } catch (_e) {
+                lang = 'en';
+            }
+        }
+        const isPt = lang === 'pt';
+        if (err && err.name === 'AbortError') {
+            return isPt
+                ? 'O servidor demorou demais a responder. Aguarde um minuto e tente novamente.'
+                : 'The server took too long to respond. Wait a minute and try again.';
+        }
+        return isPt
+            ? 'Erro de ligação ao servidor. O Render pode estar a iniciar — aguarde até 2 minutos e tente de novo.'
+            : 'Connection error reaching the server. Render may be waking up — wait up to 2 minutes and try again.';
+    }
+
+    /** Fire-and-forget ping so Render starts waking before the user submits login. */
+    function warmRenderService() {
+        const root = getApiRootUrl();
+        carbonApiFetch(root, { method: 'GET' }, 15000).catch(() => {});
+    }
+
     applyOrgMainUnlockFromUrl();
+    if (isGithubPagesHost() || !isLocalApiBase(resolveApiBaseUrl())) {
+        warmRenderService();
+    }
 
     global.resolveApiBaseUrl = resolveApiBaseUrl;
     global.getApiRootUrl = getApiRootUrl;
@@ -171,4 +243,7 @@
     global.isGithubPagesHost = isGithubPagesHost;
     global.clearAuthSessionStorage = clearAuthSessionStorage;
     global.carbonApiFetch = carbonApiFetch;
+    global.loginPost = loginPost;
+    global.loginConnectionErrorMessage = loginConnectionErrorMessage;
+    global.LOGIN_TIMEOUT_MS = LOGIN_TIMEOUT_MS;
 })(typeof window !== 'undefined' ? window : globalThis);

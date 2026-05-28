@@ -581,6 +581,24 @@ function showVerifyPanel(prefillEmail, verificationCode) {
     }
 }
 
+function setLoginSubmitting(isSubmitting) {
+    const btn = document.querySelector('#loginForm button[type="submit"]');
+    if (!btn) return;
+    if (!btn.dataset.defaultLabel) {
+        btn.dataset.defaultLabel = btn.textContent.trim();
+    }
+    btn.disabled = isSubmitting;
+    btn.setAttribute('aria-busy', isSubmitting ? 'true' : 'false');
+    if (isSubmitting) {
+        btn.textContent =
+            appState.currentLanguage === 'pt'
+                ? 'A ligar ao servidor… (até 2 min)'
+                : 'Connecting to server… (up to 2 min)';
+    } else {
+        btn.textContent = btn.dataset.defaultLabel;
+    }
+}
+
 // LOGIN FORM SUBMIT
 document.getElementById('loginForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
@@ -590,13 +608,23 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
     const loginError = document.getElementById('loginError');
     
     if (loginError) loginError.textContent = '';
+    setLoginSubmitting(true);
+    if (loginError) {
+        loginError.textContent =
+            appState.currentLanguage === 'pt'
+                ? 'A aguardar resposta do servidor…'
+                : 'Waiting for server response…';
+    }
 
     try {
-        const response = await fetch(`${getApiBaseUrl()}/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ login: identifier, password }),
-        });
+        const response =
+            typeof loginPost === 'function'
+                ? await loginPost(identifier, password)
+                : await fetch(`${getApiBaseUrl()}/login`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ login: identifier, password }),
+                  });
 
         const raw = await response.text();
         const data = parseJsonResponse(raw);
@@ -662,10 +690,14 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
         console.error('Login error:', err);
         if (loginError) {
             loginError.textContent =
-                appState.currentLanguage === 'pt'
-                    ? 'Erro de conexão. O servidor está disponível?'
-                    : 'Connection error. Is the backend running?';
+                typeof loginConnectionErrorMessage === 'function'
+                    ? loginConnectionErrorMessage(err, appState.currentLanguage)
+                    : appState.currentLanguage === 'pt'
+                      ? 'Erro de conexão. O servidor está disponível?'
+                      : 'Connection error. Is the backend running?';
         }
+    } finally {
+        setLoginSubmitting(false);
     }
 });
 
@@ -857,12 +889,17 @@ async function loadUserDataFromBackend() {
 
     let dataResponse;
     let factorsResponse;
+    const apiFetch =
+        typeof carbonApiFetch === 'function'
+            ? (url, opts) => carbonApiFetch(url, opts, 120000)
+            : (url, opts) => fetch(url, opts);
+    const base = getApiBaseUrl();
     try {
         [dataResponse, factorsResponse] = await Promise.all([
-            fetch(`${getApiBaseUrl()}/data`, {
+            apiFetch(`${base}/data`, {
                 headers: { Authorization: `Bearer ${token}` },
             }),
-            fetch(`${getApiBaseUrl()}/factors`, {
+            apiFetch(`${base}/factors`, {
                 headers: { Authorization: `Bearer ${token}` },
             }),
         ]);
