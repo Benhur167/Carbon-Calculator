@@ -5,6 +5,10 @@ function getApiBaseUrl() {
 }
 
 function clearAuthSession() {
+    if (typeof clearAuthSessionStorage === 'function') {
+        clearAuthSessionStorage();
+        return;
+    }
     localStorage.removeItem('loggedIn');
     localStorage.removeItem('loginEmail');
     localStorage.removeItem('userEmail');
@@ -15,6 +19,7 @@ function clearAuthSession() {
     localStorage.removeItem('isOrgAdmin');
     localStorage.removeItem('sessionExpiresAt');
     localStorage.removeItem('sessionLastActivity');
+    localStorage.removeItem('carbonApiBase');
     if (typeof clearOrgAdminMainAppUnlock === 'function') {
         clearOrgAdminMainAppUnlock();
     }
@@ -31,30 +36,25 @@ function ensureAdminAccess() {
 }
 
 function apiBasesForRequest() {
-    const primary = getApiBaseUrl();
-    const render =
-        typeof CARBON_RENDER_API_BASE !== 'undefined'
-            ? CARBON_RENDER_API_BASE
-            : 'https://carboncalculator-2eak.onrender.com/api';
-    if (typeof isLocalApiBase === 'function' && isLocalApiBase(primary) && primary !== render) {
-        return [primary, render];
+    if (typeof loginApiBaseCandidates === 'function') {
+        return loginApiBaseCandidates();
     }
-    return [primary];
+    return [getApiBaseUrl()];
 }
 
 async function apiFetch(path, options = {}) {
     const bases = apiBasesForRequest();
+    const fetchFn = typeof carbonApiFetch === 'function' ? carbonApiFetch : fetch;
     let lastErr = null;
     for (const base of bases) {
         try {
-            const response = await fetch(`${base}${path}`, options);
-            if (response.ok || response.status === 401 || response.status === 403 || response.status === 400) {
-                if (base !== getApiBaseUrl()) {
+            const response = await fetchFn(`${base}${path}`, options);
+            if (response) {
+                if (base !== getApiBaseUrl() && typeof localStorage !== 'undefined') {
                     localStorage.setItem('carbonApiBase', base);
                 }
                 return response;
             }
-            lastErr = new Error(`HTTP ${response.status}`);
         } catch (err) {
             lastErr = err;
         }
@@ -106,9 +106,11 @@ async function handleAddUser(e) {
     } catch (err) {
         if (errorEl) {
             errorEl.textContent =
-                typeof isLocalApiBase === 'function' && isLocalApiBase(getApiBaseUrl())
-                    ? 'Connection error. Start the backend (py mongo_api.py) or use production API.'
-                    : 'Connection error. Please try again.';
+                typeof isGithubPagesHost === 'function' && isGithubPagesHost()
+                    ? 'Connection error. Wait a moment if Render is waking up, then try again.'
+                    : typeof isLocalApiBase === 'function' && isLocalApiBase(getApiBaseUrl())
+                      ? 'Connection error. Start the backend (py mongo_api.py) or use production API.'
+                      : 'Connection error. Please try again.';
         }
     }
 }
@@ -166,8 +168,8 @@ async function loadUsers() {
     } catch (err) {
         if (errEl) {
             errEl.textContent =
-                typeof isLocalApiBase === 'function' && isLocalApiBase(getApiBaseUrl())
-                    ? 'Connection error loading users. Start backend or open index.html with ?api=Render URL.'
+                typeof isGithubPagesHost === 'function' && isGithubPagesHost()
+                    ? 'Connection error loading users. Wait if Render is waking up.'
                     : 'Connection error loading users.';
         }
     }
@@ -268,10 +270,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('openOrgDataBtn')?.addEventListener('click', () => {
         if (typeof unlockOrgAdminMainApp === 'function') {
             unlockOrgAdminMainApp();
-        } else {
-            localStorage.setItem('orgOpenMainApp', 'true');
         }
-        window.location.href = 'index.html';
+        window.location.href = 'index.html?orgMain=1';
     });
 
     loadUsers();

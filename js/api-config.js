@@ -1,7 +1,6 @@
 /**
  * API base URL — shared by app.js, export.js, organization-users.js.
- * Local dev: http://127.0.0.1:5000/api when opened from localhost.
- * Override: ?api=http://127.0.0.1:5000/api or localStorage carbonApiBase
+ * GitHub Pages: always uses Render API (ignores stale localhost overrides in storage).
  */
 (function (global) {
     const RENDER_API = 'https://carboncalculator-2eak.onrender.com/api';
@@ -13,6 +12,15 @@
             s += '/api';
         }
         return s;
+    }
+
+    function isGithubPagesHost() {
+        const host = (global.location && global.location.hostname) || '';
+        return host === 'github.io' || host.endsWith('.github.io');
+    }
+
+    function isLocalApiBase(base) {
+        return /localhost|127\.0\.0\.1/i.test(base || '');
     }
 
     function resolveApiBaseUrl() {
@@ -30,9 +38,17 @@
         } catch (_e) {
             /* ignore */
         }
+        if (isGithubPagesHost()) {
+            return RENDER_API;
+        }
         try {
             const stored = global.localStorage.getItem('carbonApiBase');
-            if (stored) return normalizeApiBase(stored);
+            if (stored && !isLocalApiBase(stored)) {
+                return normalizeApiBase(stored);
+            }
+            if (stored && isLocalApiBase(stored)) {
+                global.localStorage.removeItem('carbonApiBase');
+            }
         } catch (_e2) {
             /* ignore */
         }
@@ -81,12 +97,22 @@
         }
     }
 
-    function isLocalApiBase(base) {
-        return /localhost|127\.0\.0\.1/i.test(base || '');
+    function applyOrgMainUnlockFromUrl() {
+        try {
+            const qs = new URLSearchParams(global.location.search || '');
+            if (qs.get('orgMain') === '1') {
+                unlockOrgAdminMainApp();
+            }
+        } catch (_e) {
+            /* ignore */
+        }
     }
 
-    /** Bases to try for login (local first, then Render if local is configured). */
+    /** Bases to try for login. GitHub Pages → Render only. */
     function loginApiBaseCandidates() {
+        if (isGithubPagesHost()) {
+            return [RENDER_API];
+        }
         const primary = resolveApiBaseUrl();
         const candidates = [primary];
         if (isLocalApiBase(primary) && primary !== RENDER_API) {
@@ -95,12 +121,54 @@
         return [...new Set(candidates)];
     }
 
+    /** Clear auth + API override so the next login uses a fresh token and correct API. */
+    function clearAuthSessionStorage() {
+        try {
+            global.localStorage.removeItem('loggedIn');
+            global.localStorage.removeItem('loginEmail');
+            global.localStorage.removeItem('userEmail');
+            global.localStorage.removeItem('authToken');
+            global.localStorage.removeItem('sessionExpiresAt');
+            global.localStorage.removeItem('sessionLastActivity');
+            global.localStorage.removeItem('organizationId');
+            global.localStorage.removeItem('organizationName');
+            global.localStorage.removeItem('userName');
+            global.localStorage.removeItem('isOrgAdmin');
+            global.localStorage.removeItem('companyName');
+            global.localStorage.removeItem('carbonApiBase');
+        } catch (_e) {
+            /* ignore */
+        }
+        clearOrgAdminMainAppUnlock();
+    }
+
+    async function carbonApiFetch(url, options = {}, timeoutMs = 120000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, {
+                credentials: 'omit',
+                mode: 'cors',
+                ...options,
+                signal: controller.signal,
+            });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    applyOrgMainUnlockFromUrl();
+
     global.resolveApiBaseUrl = resolveApiBaseUrl;
     global.getApiRootUrl = getApiRootUrl;
     global.CARBON_RENDER_API_BASE = RENDER_API;
     global.unlockOrgAdminMainApp = unlockOrgAdminMainApp;
     global.allowOrgAdminMainApp = allowOrgAdminMainApp;
     global.clearOrgAdminMainAppUnlock = clearOrgAdminMainAppUnlock;
+    global.applyOrgMainUnlockFromUrl = applyOrgMainUnlockFromUrl;
     global.loginApiBaseCandidates = loginApiBaseCandidates;
     global.isLocalApiBase = isLocalApiBase;
+    global.isGithubPagesHost = isGithubPagesHost;
+    global.clearAuthSessionStorage = clearAuthSessionStorage;
+    global.carbonApiFetch = carbonApiFetch;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -75,6 +75,11 @@ function connectionErrorMessage(err) {
             ? 'Abra a app via um servidor local (ex.: py -m http.server na pasta do projeto) ou use ?api=http://127.0.0.1:5000/api com o backend local.'
             : 'Open the app through a local web server (e.g. run py -m http.server in the project folder), or use ?api=http://127.0.0.1:5000/api with a local backend.';
     }
+    if (typeof isGithubPagesHost === 'function' && isGithubPagesHost()) {
+        return isPt
+            ? `Erro de ligação ao servidor (${base}). Aguarde ~1 minuto se o Render estiver a acordar e tente de novo, ou faça logout e login novamente.`
+            : `Connection error (${base}). If Render was sleeping, wait about a minute and try again, or click Logout and sign in again.`;
+    }
     if (err && err.name === 'AbortError') {
         return isPt
             ? `Tempo esgotado ao contactar ${base}. Se usa Render gratuito, aguarde ~1 minuto e tente de novo.`
@@ -477,27 +482,30 @@ const CATEGORY_DEFAULT_UNITS = {
 function clearAuthSession() {
     appState.loggedIn = false;
     knownUserProfile = null;
+    const orgId = localStorage.getItem('organizationId') || 'default';
     if (window.OrgPreferences?.clearOrgPreferencesCache) {
         window.OrgPreferences.clearOrgPreferencesCache();
     }
-    localStorage.removeItem('loggedIn');
-    localStorage.removeItem('loginEmail');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
-    localStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
-    // Clear site data (old single-user key + new org-scoped keys)
+    if (typeof clearAuthSessionStorage === 'function') {
+        clearAuthSessionStorage();
+    } else {
+        localStorage.removeItem('loggedIn');
+        localStorage.removeItem('loginEmail');
+        localStorage.removeItem('userEmail');
+        localStorage.removeItem('authToken');
+        localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
+        localStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
+        localStorage.removeItem('organizationId');
+        localStorage.removeItem('organizationName');
+        localStorage.removeItem('userName');
+        localStorage.removeItem('isOrgAdmin');
+        if (typeof clearOrgAdminMainAppUnlock === 'function') {
+            clearOrgAdminMainAppUnlock();
+        }
+    }
     localStorage.removeItem(LEGACY_SITES_CACHE_KEY);
-    const orgId = localStorage.getItem('organizationId') || 'default';
     localStorage.removeItem(`carbonCalcSites_${orgId}`);
     localStorage.removeItem(LAST_LOADED_ORG_KEY);
-    localStorage.removeItem('organizationId');
-    localStorage.removeItem('organizationName');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('isOrgAdmin');
-    if (typeof clearOrgAdminMainAppUnlock === 'function') {
-        clearOrgAdminMainAppUnlock();
-    }
 }
 
 function touchSession() {
@@ -1082,12 +1090,16 @@ document.getElementById('logoutBtn')?.addEventListener('click', async function()
         console.error('Final sync before logout failed:', err);
     }
     clearAuthSession();
+    sessionMonitorStarted = false;
     applyQaVisibility();
 
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('mainApp').style.display = 'none';
 
     document.getElementById('loginPassword').value = '';
+    if (document.getElementById('loginEmail')) {
+        document.getElementById('loginEmail').value = '';
+    }
     if (document.getElementById('signupPassword')) document.getElementById('signupPassword').value = '';
     if (document.getElementById('signupConfirmPassword')) document.getElementById('signupConfirmPassword').value = '';
 });
@@ -2761,6 +2773,10 @@ async function initializeApp() {
 // ============================================
 
 window.addEventListener('DOMContentLoaded', function() {
+    if (typeof applyOrgMainUnlockFromUrl === 'function') {
+        applyOrgMainUnlockFromUrl();
+    }
+
     // Initialize theme palette UI as early as possible
     if (typeof window.initCarbonPaletteUI === 'function') {
         window.initCarbonPaletteUI();
