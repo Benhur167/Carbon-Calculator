@@ -39,18 +39,55 @@ const appState = {
 // LOGIN & SIGNUP SYSTEM (MongoDB Integration)
 // ============================================
 
-// Render / local API. Streamlit sets window.__CARBON_API_BASE__ in app_integrated.py when embedded.
+// Render / local API. Streamlit sets window.__CARBON_API_BASE__ when embedded.
 const API_BASE_URL =
-    (typeof window !== 'undefined' && window.__CARBON_API_BASE__) ||
-    'https://carboncalculator-2eak.onrender.com/api';
-/** Ping Render so the service wakes before login (see js/api-warmup.js, loaded first in index.html). */
+    typeof resolveApiBaseUrl === 'function'
+        ? resolveApiBaseUrl()
+        : (window.__CARBON_API_BASE__ || 'https://carboncalculator-2eak.onrender.com/api');
+
 function warmApiConnection() {
     if (typeof window.wakeRenderBackend === 'function') {
         window.wakeRenderBackend();
         return;
     }
-    const root = API_BASE_URL.replace(/\/api\/?$/, '') + '/';
+    const root =
+        typeof getApiRootUrl === 'function'
+            ? getApiRootUrl()
+            : API_BASE_URL.replace(/\/api\/?$/i, '') + '/';
     fetch(root, { method: 'GET', mode: 'cors', cache: 'no-store' }).catch(() => {});
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** fetch with timeout (Render cold start can take 30–60s). */
+async function fetchWithTimeout(url, options = {}, timeoutMs = 120000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+function connectionErrorMessage(err) {
+    const base = API_BASE_URL;
+    const isPt = appState.currentLanguage === 'pt';
+    if (err && err.name === 'AbortError') {
+        return isPt
+            ? `Tempo esgotado ao contactar ${base}. Se usa Render gratuito, aguarde ~1 minuto e tente de novo.`
+            : `Timed out contacting ${base}. On Render free tier, wait about a minute and try again.`;
+    }
+    if (/localhost|127\.0\.0\.1/i.test(base)) {
+        return isPt
+            ? `Sem ligação a ${base}. Inicie o backend: cd backend && py mongo_api.py`
+            : `Cannot reach ${base}. Start the backend: cd backend && py mongo_api.py`;
+    }
+    return isPt
+        ? `Erro de ligação (${base}). Verifique a rede ou use ?api=http://127.0.0.1:5000/api para API local.`
+        : `Connection error (${base}). Check your network, or use ?api=http://127.0.0.1:5000/api for a local backend.`;
 }
 
 const SESSION_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
@@ -606,14 +643,32 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
     if (loginError) loginError.textContent = '';
     setLoginSubmitting(true);
     warmApiConnection();
-    
+
     try {
-        const response = await fetch(`${API_BASE_URL}/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ login: identifier, password })
-        });
-        
+        let response;
+        let lastErr;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            if (attempt > 0) {
+                warmApiConnection();
+                await sleep(2500);
+            }
+            try {
+                response = await fetchWithTimeout(`${API_BASE_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ login: identifier, password }),
+                });
+                lastErr = null;
+                break;
+            } catch (fetchErr) {
+                lastErr = fetchErr;
+                console.warn('Login fetch attempt failed:', fetchErr);
+            }
+        }
+        if (!response) {
+            throw lastErr || new Error('Network request failed');
+        }
+
         const raw = await response.text();
         const data = parseJsonResponse(raw);
         
@@ -663,8 +718,11 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('mainApp').style.display = 'flex';
 
-            // Paint main shell first; heavy init + Mongo sync run on the next frame.
-            requestAnimationFrame(() => initializeApp());
+            requestAnimationFrame(() => {
+                initializeApp().catch((initErr) => {
+                    console.error('initializeApp failed after login:', initErr);
+                });
+            });
         } else {
             if (loginError) {
                 loginError.textContent = loginFailureMessage(response.status, data);
@@ -673,10 +731,7 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
     } catch (err) {
         console.error('Login error:', err);
         if (loginError) {
-            loginError.textContent =
-                appState.currentLanguage === 'pt'
-                    ? 'Erro de conexão. O servidor está disponível?'
-                    : 'Connection error. Is the backend running?';
+            loginError.textContent = connectionErrorMessage(err);
         }
     } finally {
         setLoginSubmitting(false);
@@ -973,12 +1028,12 @@ async function loadUserDataFromBackend() {
 }
 
 async function syncOrganizationDataFromServer() {
-    resetAppStateForCompany(localStorage.getItem('companyName') || 'My Company');
-    rebuildSitesUIFromState();
     const loadedFromBackend = await loadUserDataFromBackend();
     if (!loadedFromBackend) {
+        resetAppStateForCompany(localStorage.getItem('companyName') || 'My Company');
         loadSitesFromLocalStorage();
     }
+    rebuildSitesUIFromState();
 }
 
 async function saveUserDataToBackend() {
@@ -2481,7 +2536,11 @@ async function initializeApp() {
     }
 
     // MongoDB is source of truth for sites + org_preferences (General Info, Assessment Scope)
-    await syncOrganizationDataFromServer();
+    try {
+        await syncOrganizationDataFromServer();
+    } catch (syncErr) {
+        console.error('Could not sync organization data from server:', syncErr);
+    }
 
     const savedCompanyName = getOrgLocalItem('companyName', localStorage.getItem('companyName') || 'My Company');
     if (savedCompanyName) {
@@ -2747,7 +2806,11 @@ window.addEventListener('DOMContentLoaded', function() {
             document.getElementById('loginEmail').value = savedEmail;
         }
 
-        requestAnimationFrame(() => initializeApp());
+        requestAnimationFrame(() => {
+            initializeApp().catch((initErr) => {
+                console.error('initializeApp failed on session restore:', initErr);
+            });
+        });
     } else {
         // Show login screen
         document.getElementById('loginScreen').style.display = 'flex';

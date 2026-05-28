@@ -63,10 +63,12 @@
         const data = prefs || cache;
         Object.entries(data).forEach(([key, raw]) => {
             const value = raw == null ? '' : String(raw);
-            const gi = document.querySelector(`[data-gi-key="${CSS.escape(key)}"]`);
+            const safeKey =
+                typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(key) : key.replace(/"/g, '');
+            const gi = document.querySelector(`[data-gi-key="${safeKey}"]`);
             if (gi && gi.value !== value) gi.value = value;
 
-            document.querySelectorAll(`[data-storage-key="${CSS.escape(key)}"]`).forEach((el) => {
+            document.querySelectorAll(`[data-storage-key="${safeKey}"]`).forEach((el) => {
                 if (el.classList.contains('assessment-scope-yn')) {
                     setYesNoControlValue(el, value);
                 } else if (el.value !== value) {
@@ -119,9 +121,6 @@
             if (ou) ou.value = data.carbonCalcOutputUnit;
         }
 
-        if (global.GeneralInfo?.applyLoginDetailsFromKnownUser) {
-            global.GeneralInfo.applyLoginDetailsFromKnownUser(null, getOrgLocalItem, setOrgLocalItem);
-        }
     }
 
     function collectOrgPreferencesFromDOM() {
