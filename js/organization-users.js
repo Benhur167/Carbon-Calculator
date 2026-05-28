@@ -1,8 +1,13 @@
-const API_BASE_URL = 'https://carboncalculator-2eak.onrender.com/api';
+function getApiBaseUrl() {
+    return typeof resolveApiBaseUrl === 'function'
+        ? resolveApiBaseUrl()
+        : 'https://carboncalculator-2eak.onrender.com/api';
+}
 
 function clearAuthSession() {
     localStorage.removeItem('loggedIn');
     localStorage.removeItem('loginEmail');
+    localStorage.removeItem('userEmail');
     localStorage.removeItem('authToken');
     localStorage.removeItem('organizationId');
     localStorage.removeItem('organizationName');
@@ -10,6 +15,9 @@ function clearAuthSession() {
     localStorage.removeItem('isOrgAdmin');
     localStorage.removeItem('sessionExpiresAt');
     localStorage.removeItem('sessionLastActivity');
+    if (typeof clearOrgAdminMainAppUnlock === 'function') {
+        clearOrgAdminMainAppUnlock();
+    }
 }
 
 function ensureAdminAccess() {
@@ -20,6 +28,38 @@ function ensureAdminAccess() {
         return false;
     }
     return true;
+}
+
+function apiBasesForRequest() {
+    const primary = getApiBaseUrl();
+    const render =
+        typeof CARBON_RENDER_API_BASE !== 'undefined'
+            ? CARBON_RENDER_API_BASE
+            : 'https://carboncalculator-2eak.onrender.com/api';
+    if (typeof isLocalApiBase === 'function' && isLocalApiBase(primary) && primary !== render) {
+        return [primary, render];
+    }
+    return [primary];
+}
+
+async function apiFetch(path, options = {}) {
+    const bases = apiBasesForRequest();
+    let lastErr = null;
+    for (const base of bases) {
+        try {
+            const response = await fetch(`${base}${path}`, options);
+            if (response.ok || response.status === 401 || response.status === 403 || response.status === 400) {
+                if (base !== getApiBaseUrl()) {
+                    localStorage.setItem('carbonApiBase', base);
+                }
+                return response;
+            }
+            lastErr = new Error(`HTTP ${response.status}`);
+        } catch (err) {
+            lastErr = err;
+        }
+    }
+    throw lastErr || new Error('Network request failed');
 }
 
 async function handleAddUser(e) {
@@ -44,11 +84,11 @@ async function handleAddUser(e) {
 
     const token = localStorage.getItem('authToken');
     try {
-        const response = await fetch(`${API_BASE_URL}/users`, {
+        const response = await apiFetch('/users', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
+                Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify(payload),
         });
@@ -64,7 +104,12 @@ async function handleAddUser(e) {
             if (errorEl) errorEl.textContent = data.msg || 'Could not create user.';
         }
     } catch (err) {
-        if (errorEl) errorEl.textContent = 'Connection error. Please try again.';
+        if (errorEl) {
+            errorEl.textContent =
+                typeof isLocalApiBase === 'function' && isLocalApiBase(getApiBaseUrl())
+                    ? 'Connection error. Start the backend (py mongo_api.py) or use production API.'
+                    : 'Connection error. Please try again.';
+        }
     }
 }
 
@@ -96,7 +141,7 @@ async function loadUsers() {
     const errEl = document.getElementById('usersError');
     if (errEl) errEl.textContent = '';
     try {
-        const response = await fetch(`${API_BASE_URL}/users`, {
+        const response = await apiFetch('/users', {
             headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json().catch(() => ({}));
@@ -113,12 +158,18 @@ async function loadUsers() {
         const body = getUsersTableBody();
         if (!body) return;
         if (!users.length) {
-            body.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">No users found.</td></tr>';
+            body.innerHTML =
+                '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">No users found.</td></tr>';
             return;
         }
         body.innerHTML = users.map(rowHtml).join('');
     } catch (err) {
-        if (errEl) errEl.textContent = 'Connection error loading users.';
+        if (errEl) {
+            errEl.textContent =
+                typeof isLocalApiBase === 'function' && isLocalApiBase(getApiBaseUrl())
+                    ? 'Connection error loading users. Start backend or open index.html with ?api=Render URL.'
+                    : 'Connection error loading users.';
+        }
     }
 }
 
@@ -147,7 +198,7 @@ async function editUser(username) {
     const token = localStorage.getItem('authToken');
     const errEl = document.getElementById('usersError');
     try {
-        const response = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(username)}`, {
+        const response = await apiFetch(`/users/${encodeURIComponent(username)}`, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -171,7 +222,7 @@ async function deleteUser(username) {
     const token = localStorage.getItem('authToken');
     const errEl = document.getElementById('usersError');
     try {
-        const response = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(username)}`, {
+        const response = await apiFetch(`/users/${encodeURIComponent(username)}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
         });
@@ -215,8 +266,11 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = 'index.html';
     });
     document.getElementById('openOrgDataBtn')?.addEventListener('click', () => {
-        // Let org admin access the main app without being immediately redirected back.
-        localStorage.setItem('orgOpenMainApp', 'true');
+        if (typeof unlockOrgAdminMainApp === 'function') {
+            unlockOrgAdminMainApp();
+        } else {
+            localStorage.setItem('orgOpenMainApp', 'true');
+        }
         window.location.href = 'index.html';
     });
 

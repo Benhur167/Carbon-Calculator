@@ -40,10 +40,11 @@ const appState = {
 // ============================================
 
 // Render / local API. Streamlit sets window.__CARBON_API_BASE__ when embedded.
-const API_BASE_URL =
-    typeof resolveApiBaseUrl === 'function'
+function getApiBaseUrl() {
+    return typeof resolveApiBaseUrl === 'function'
         ? resolveApiBaseUrl()
-        : (window.__CARBON_API_BASE__ || 'https://carboncalculator-2eak.onrender.com/api');
+        : window.__CARBON_API_BASE__ || 'https://carboncalculator-2eak.onrender.com/api';
+}
 
 function warmApiConnection() {
     if (typeof window.wakeRenderBackend === 'function') {
@@ -53,7 +54,7 @@ function warmApiConnection() {
     const root =
         typeof getApiRootUrl === 'function'
             ? getApiRootUrl()
-            : API_BASE_URL.replace(/\/api\/?$/i, '') + '/';
+            : getApiBaseUrl().replace(/\/api\/?$/i, '') + '/';
     fetch(root, { method: 'GET', mode: 'cors', cache: 'no-store' }).catch(() => {});
 }
 
@@ -73,7 +74,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 120000) {
 }
 
 function connectionErrorMessage(err) {
-    const base = API_BASE_URL;
+    const base = getApiBaseUrl();
     const isPt = appState.currentLanguage === 'pt';
     if (err && err.name === 'AbortError') {
         return isPt
@@ -410,7 +411,7 @@ async function getChatbotReply(message) {
     if (hasApi) {
         try {
             const token = localStorage.getItem('authToken');
-            const response = await fetch(`${API_BASE_URL}/chatbot/assist`, {
+            const response = await fetch(`${getApiBaseUrl()}/chatbot/assist`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ message }),
@@ -495,6 +496,9 @@ function clearAuthSession() {
     localStorage.removeItem('organizationName');
     localStorage.removeItem('userName');
     localStorage.removeItem('isOrgAdmin');
+    if (typeof clearOrgAdminMainAppUnlock === 'function') {
+        clearOrgAdminMainAppUnlock();
+    }
 }
 
 function touchSession() {
@@ -645,24 +649,36 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
     warmApiConnection();
 
     try {
-        let response;
-        let lastErr;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-            if (attempt > 0) {
-                warmApiConnection();
-                await sleep(2500);
-            }
-            try {
-                response = await fetchWithTimeout(`${API_BASE_URL}/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ login: identifier, password }),
-                });
-                lastErr = null;
-                break;
-            } catch (fetchErr) {
-                lastErr = fetchErr;
-                console.warn('Login fetch attempt failed:', fetchErr);
+        let response = null;
+        let lastErr = null;
+        const apiBases =
+            typeof loginApiBaseCandidates === 'function'
+                ? loginApiBaseCandidates()
+                : [getApiBaseUrl()];
+        outer: for (const base of apiBases) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                if (attempt > 0) {
+                    warmApiConnection();
+                    await sleep(2500);
+                }
+                try {
+                    response = await fetchWithTimeout(`${base}/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ login: identifier, password }),
+                    });
+                    if (response.ok || response.status === 401 || response.status === 403) {
+                        if (base !== getApiBaseUrl() && typeof localStorage !== 'undefined') {
+                            localStorage.setItem('carbonApiBase', base);
+                        }
+                        lastErr = null;
+                        break outer;
+                    }
+                } catch (fetchErr) {
+                    lastErr = fetchErr;
+                    console.warn('Login fetch attempt failed:', base, fetchErr);
+                    response = null;
+                }
             }
         }
         if (!response) {
@@ -708,12 +724,15 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
                 localStorage.setItem('companyName', data.user.company_name || 'My Company');
             }
 
-            const allowOrgMainApp = localStorage.getItem('orgOpenMainApp') === 'true';
+            const allowOrgMainApp =
+                typeof allowOrgAdminMainApp === 'function' ? allowOrgAdminMainApp() : false;
             if (data.user && data.user.is_org_admin && !allowOrgMainApp) {
                 window.location.href = 'organization-users.html';
                 return;
             }
-            localStorage.removeItem('orgOpenMainApp');
+            if (data.user && data.user.is_org_admin && typeof unlockOrgAdminMainApp === 'function') {
+                unlockOrgAdminMainApp();
+            }
             
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('mainApp').style.display = 'flex';
@@ -759,7 +778,7 @@ document.getElementById('signupForm')?.addEventListener('submit', async function
     }
     
     try {
-        const response = await fetch(`${API_BASE_URL}/signup`, {
+        const response = await fetch(`${getApiBaseUrl()}/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -829,7 +848,7 @@ document.getElementById('verifyForm')?.addEventListener('submit', async function
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/verify-email`, {
+        const response = await fetch(`${getApiBaseUrl()}/verify-email`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, code }),
@@ -881,7 +900,7 @@ document.getElementById('resendVerificationBtn')?.addEventListener('click', asyn
         return;
     }
     try {
-        const response = await fetch(`${API_BASE_URL}/resend-verification`, {
+        const response = await fetch(`${getApiBaseUrl()}/resend-verification`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email }),
@@ -923,7 +942,7 @@ document.getElementById('backToLoginFromVerify')?.addEventListener('click', func
 async function loadConversionFactorsFromBackend(token) {
     if (!token) return;
     try {
-        const factorsResponse = await fetch(`${API_BASE_URL}/factors`, {
+        const factorsResponse = await fetch(`${getApiBaseUrl()}/factors`, {
             headers: { Authorization: `Bearer ${token}` },
         });
         if (factorsResponse.status === 401) {
@@ -956,18 +975,37 @@ async function loadUserDataFromBackend() {
     const token = getActiveAuthToken();
     if (!token) return false;
 
-    let dataResponse;
-    try {
-        dataResponse = await fetch(`${API_BASE_URL}/data`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-    } catch (err) {
-        console.error('Error loading data from backend:', err);
+    const bases =
+        typeof loginApiBaseCandidates === 'function'
+            ? loginApiBaseCandidates()
+            : [getApiBaseUrl()];
+    let dataResponse = null;
+    for (const base of bases) {
+        try {
+            const res = await fetch(`${base}/data`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            dataResponse = res;
+            if (res.status === 401) {
+                break;
+            }
+            if (res.ok) {
+                if (base !== getApiBaseUrl()) {
+                    localStorage.setItem('carbonApiBase', base);
+                }
+                break;
+            }
+        } catch (err) {
+            console.warn('Error loading data from backend:', base, err);
+            dataResponse = null;
+        }
+    }
+    if (!dataResponse) {
         return false;
     }
 
     if (dataResponse.status === 401) {
-        forceLogoutForExpiredSession(true);
+        forceLogoutForExpiredSession(false);
         return false;
     }
 
@@ -1043,7 +1081,7 @@ async function saveUserDataToBackend() {
     if (!token) return;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/data`, {
+        const response = await fetch(`${getApiBaseUrl()}/data`, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -1088,6 +1126,9 @@ document.getElementById('logoutBtn')?.addEventListener('click', async function()
 });
 
 document.getElementById('orgUserSettingsBtn')?.addEventListener('click', function() {
+    if (typeof clearOrgAdminMainAppUnlock === 'function') {
+        clearOrgAdminMainAppUnlock();
+    }
     window.location.href = 'organization-users.html';
 });
 
@@ -2448,7 +2489,7 @@ document.getElementById('companyNameInput')?.addEventListener('input', async fun
     const token = localStorage.getItem('authToken');
     if (token) {
         try {
-            await fetch(`${API_BASE_URL}/user`, {
+            await fetch(`${getApiBaseUrl()}/user`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -2786,12 +2827,15 @@ window.addEventListener('DOMContentLoaded', function() {
             return;
         }
         const isOrgAdmin = localStorage.getItem('isOrgAdmin') === 'true';
-        const allowOrgMainApp = localStorage.getItem('orgOpenMainApp') === 'true';
+        const allowOrgMainApp =
+            typeof allowOrgAdminMainApp === 'function' ? allowOrgAdminMainApp() : false;
         if (isOrgAdmin && !allowOrgMainApp) {
             window.location.href = 'organization-users.html';
             return;
         }
-        localStorage.removeItem('orgOpenMainApp');
+        if (isOrgAdmin && typeof unlockOrgAdminMainApp === 'function') {
+            unlockOrgAdminMainApp();
+        }
         // Auto-login: set state and sync
         appState.loggedIn = true;
         touchSession();

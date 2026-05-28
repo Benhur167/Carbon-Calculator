@@ -547,7 +547,12 @@ function importFactorsFromExcel(file, baseName) {
             const token = localStorage.getItem('authToken');
             if (token) {
                 // Assuming API_BASE_URL is broadly available from app.js
-                const apiBase = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'http://localhost:5000/api';
+                const apiBase =
+                    typeof getApiBaseUrl === 'function'
+                        ? getApiBaseUrl()
+                        : typeof resolveApiBaseUrl === 'function'
+                          ? resolveApiBaseUrl()
+                          : 'https://carboncalculator-2eak.onrender.com/api';
                 fetch(`${apiBase}/factors`, {
                     method: 'POST',
                     headers: {
@@ -1123,7 +1128,12 @@ async function generateFinalReportDOCX() {
 
     const grand_total_kg = (Object.values(totals_kg).reduce((a, b) => a + b, 0)) || 0;
 
-    const apiBase = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'http://localhost:5000/api';
+    const apiBase =
+        typeof getApiBaseUrl === 'function'
+            ? getApiBaseUrl()
+            : typeof resolveApiBaseUrl === 'function'
+              ? resolveApiBaseUrl()
+              : 'https://carboncalculator-2eak.onrender.com/api';
     const payload = {
         organization_name: orgName,
         site_name: siteName,
