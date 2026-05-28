@@ -6,12 +6,99 @@
 let pieChart = null;
 let barChart = null;
 let lineChart = null;
+let sourceTrendChart = null;
 let bankReconChart = null;
 let accountFlowChart = null;
 let accountSummaryChart = null;
 
 function _chartTheme() {
     return typeof window.getCarbonChartColors === 'function' ? window.getCarbonChartColors() : null;
+}
+
+const CHART_PREFS_KEY = 'carbonChartPreferences';
+
+function getChartPrefs() {
+    const defaults = {
+        primaryColor: '#0EA5E9',
+        secondaryColor: '#16A34A',
+        fontFamily: 'Inter, Arial, sans-serif',
+        fontSize: 12,
+        fontWeight: '500',
+    };
+    try {
+        const parsed = JSON.parse(localStorage.getItem(CHART_PREFS_KEY) || '{}');
+        return { ...defaults, ...parsed };
+    } catch {
+        return defaults;
+    }
+}
+
+function saveChartPrefs(prefs) {
+    localStorage.setItem(CHART_PREFS_KEY, JSON.stringify({ ...getChartPrefs(), ...prefs }));
+}
+
+function openChartStyleModal() {
+    const prefs = getChartPrefs();
+    const existing = document.getElementById('chartStyleModal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'chartStyleModal';
+    modal.className = 'widget-modal';
+    modal.innerHTML = `
+        <div class="widget-modal-content">
+            <div class="widget-modal-header">
+                <h3>Chart Style Preferences</h3>
+                <button class="widget-modal-close" onclick="document.getElementById('chartStyleModal')?.remove()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="widget-modal-body">
+                <label>Primary color <input type="color" id="chartPrimaryColor" value="${prefs.primaryColor}"></label>
+                <label>Secondary color <input type="color" id="chartSecondaryColor" value="${prefs.secondaryColor}"></label>
+                <label>Font family <input type="text" id="chartFontFamily" value="${prefs.fontFamily}"></label>
+                <label>Font size <input type="number" id="chartFontSize" min="10" max="18" value="${prefs.fontSize}"></label>
+                <label>Font weight
+                    <select id="chartFontWeight">
+                        <option value="400" ${String(prefs.fontWeight) === '400' ? 'selected' : ''}>400</option>
+                        <option value="500" ${String(prefs.fontWeight) === '500' ? 'selected' : ''}>500</option>
+                        <option value="600" ${String(prefs.fontWeight) === '600' ? 'selected' : ''}>600</option>
+                        <option value="700" ${String(prefs.fontWeight) === '700' ? 'selected' : ''}>700</option>
+                    </select>
+                </label>
+            </div>
+            <div class="widget-modal-footer">
+                <button class="btn-secondary" onclick="resetChartStyleDefaults()">Reset defaults</button>
+                <button class="btn-primary" onclick="applyChartStylePrefs()">Apply</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function applyChartStylePrefs() {
+    const prefs = {
+        primaryColor: document.getElementById('chartPrimaryColor')?.value || '#0EA5E9',
+        secondaryColor: document.getElementById('chartSecondaryColor')?.value || '#16A34A',
+        fontFamily: document.getElementById('chartFontFamily')?.value || 'Inter, Arial, sans-serif',
+        fontSize: Number(document.getElementById('chartFontSize')?.value || 12),
+        fontWeight: document.getElementById('chartFontWeight')?.value || '500',
+    };
+    saveChartPrefs(prefs);
+    document.getElementById('chartStyleModal')?.remove();
+    updateDashboard();
+}
+
+function resetChartStyleDefaults() {
+    localStorage.removeItem(CHART_PREFS_KEY);
+    updateDashboard();
+    document.getElementById('chartStyleModal')?.remove();
+}
+
+function chartLabelForUnit() {
+    return window.carbonCalc?.getOutputUnit?.() === 'kgCO2e' ? 'kgCO₂e' : 'tCO₂e';
+}
+
+function convertTonnesToDisplayValue(tonnes) {
+    const t = Number(tonnes || 0);
+    return window.carbonCalc?.getOutputUnit?.() === 'kgCO2e' ? t * 1000 : t;
 }
 
 // Generate colors for year bars dynamically
@@ -91,28 +178,30 @@ function updateKPIs() {
     // Update KPI elements
     const totalEmissionsEl = document.getElementById('totalEmissions');
     if (totalEmissionsEl) {
-        totalEmissionsEl.textContent = `${grandTotal.toFixed(3)} tCO₂e`;
+        totalEmissionsEl.textContent = window.carbonCalc?.formatTonnesForDisplay
+            ? window.carbonCalc.formatTonnesForDisplay(grandTotal)
+            : `${grandTotal.toFixed(3)} tCO₂e`;
     }
     
     // Update Scope breakdown KPIs
     const scope1El = document.getElementById('scope1Emissions');
     if (scope1El) {
-        scope1El.textContent = `${scopeBreakdown.scope1.toFixed(3)} tCO₂e`;
+        scope1El.textContent = window.carbonCalc?.formatTonnesForDisplay(scopeBreakdown.scope1) || `${scopeBreakdown.scope1.toFixed(3)} tCO₂e`;
     }
     
     const scope2El = document.getElementById('scope2Emissions');
     if (scope2El) {
-        scope2El.textContent = `${scopeBreakdown.scope2.toFixed(3)} tCO₂e`;
+        scope2El.textContent = window.carbonCalc?.formatTonnesForDisplay(scopeBreakdown.scope2) || `${scopeBreakdown.scope2.toFixed(3)} tCO₂e`;
     }
     
     const scope3El = document.getElementById('scope3Emissions');
     if (scope3El) {
-        scope3El.textContent = `${scopeBreakdown.scope3.toFixed(3)} tCO₂e`;
+        scope3El.textContent = window.carbonCalc?.formatTonnesForDisplay(scopeBreakdown.scope3) || `${scopeBreakdown.scope3.toFixed(3)} tCO₂e`;
     }
     
     const currentYearEmissionsEl = document.getElementById('currentYearEmissions');
     if (currentYearEmissionsEl) {
-        currentYearEmissionsEl.textContent = `${lastYearValue.toFixed(3)} tCO₂e`;
+        currentYearEmissionsEl.textContent = window.carbonCalc?.formatTonnesForDisplay(lastYearValue) || `${lastYearValue.toFixed(3)} tCO₂e`;
     }
     
     // Update last year display with dynamic year
@@ -133,7 +222,12 @@ function updateKPIs() {
     
     const avgMonthEl = document.getElementById('avgMonthEmissions');
     if (avgMonthEl) {
-        avgMonthEl.textContent = `${avgMonth.toFixed(3)} tCO₂e`;
+        avgMonthEl.textContent = window.carbonCalc?.formatTonnesForDisplay(avgMonth) || `${avgMonth.toFixed(3)} tCO₂e`;
+    }
+
+    const calcContext = document.getElementById('dashboardCalcContext');
+    if (calcContext && window.carbonCalc?.getReportingYear && window.carbonCalc?.getOutputUnit) {
+        calcContext.textContent = `Year: ${window.carbonCalc.getReportingYear()} | Unit: ${window.carbonCalc.getOutputUnit()}`;
     }
     
     // Update change indicator
@@ -166,6 +260,7 @@ function updateCharts() {
     updatePieChart();
     updateBarChart();
     updateLineChart();
+    updateSourceTrendChart();
 }
 
 function updateAccountsCharts() {
@@ -191,6 +286,7 @@ function updateAccountsCharts() {
 
 function updatePieChart() {
     const ct = _chartTheme();
+    const prefs = getChartPrefs();
     const totals = window.carbonCalc.getCategoryTotals();
     const labels = Object.keys(totals).map(key => {
         const translations = {
@@ -231,6 +327,7 @@ function updatePieChart() {
                     position: 'bottom',
                     labels: {
                         color: ct?.legend || (appState.darkMode ? '#E2E8F0' : '#0F172A'),
+                        font: { family: prefs.fontFamily, size: prefs.fontSize, weight: prefs.fontWeight },
                         padding: 15,
                         font: {
                             size: 12
@@ -244,7 +341,7 @@ function updatePieChart() {
                             const value = context.parsed || 0;
                             const total = context.dataset.data.reduce((a, b) => a + b, 0);
                             const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                            return `${label}: ${value.toFixed(3)} tCO₂e (${percentage}%)`;
+                            return `${label}: ${convertTonnesToDisplayValue(value).toFixed(3)} ${chartLabelForUnit()} (${percentage}%)`;
                         }
                     }
                 }
@@ -259,6 +356,7 @@ function updatePieChart() {
 
 function updateBarChart() {
     const ct = _chartTheme();
+    const prefs = getChartPrefs();
     // Force recalculation first
     if (window.carbonCalc && window.carbonCalc.calculateAllTotals) {
         window.carbonCalc.calculateAllTotals();
@@ -332,7 +430,7 @@ function updateBarChart() {
             labels: years,
             datasets: [{
                 label: appState.currentLanguage === 'en' ? 'Total Emissions (tCO₂e)' : 'Emissões Totais (tCO₂e)',
-                data: values,
+                data: values.map(convertTonnesToDisplayValue),
                 backgroundColor: colors.length === years.length ? colors : generateYearColors(years.length),
                 borderWidth: 0,
                 borderRadius: 8,
@@ -360,6 +458,7 @@ function updateBarChart() {
                     position: 'left',
                     ticks: {
                         color: ct?.tick || (appState.darkMode ? '#94A3B8' : '#64748B'),
+                        font: { family: prefs.fontFamily, size: prefs.fontSize, weight: prefs.fontWeight },
                         callback: function(value) {
                             return value.toFixed(1);
                         }
@@ -389,7 +488,7 @@ function updateBarChart() {
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            return `${context.parsed.y.toFixed(3)} tCO₂e`;
+                            return `${context.parsed.y.toFixed(3)} ${chartLabelForUnit()}`;
                         }
                     }
                 }
@@ -404,6 +503,7 @@ function updateBarChart() {
 
 function updateLineChart() {
     const ct = _chartTheme();
+    const prefs = getChartPrefs();
     const monthlyData = window.carbonCalc.getMonthlyTotals();
     const monthNames = appState.currentLanguage === 'en' 
         ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -421,8 +521,8 @@ function updateLineChart() {
             labels: monthNames,
             datasets: [{
                 label: appState.currentLanguage === 'en' ? 'Monthly Emissions (tCO₂e)' : 'Emissões Mensais (tCO₂e)',
-                data: monthlyData,
-                borderColor: ct?.lineBorder || '#0EA5E9',
+                data: monthlyData.map(convertTonnesToDisplayValue),
+                borderColor: prefs.primaryColor || ct?.lineBorder || '#0EA5E9',
                 backgroundColor: ct?.lineFill || 'rgba(14, 165, 233, 0.1)',
                 borderWidth: 3,
                 fill: true,
@@ -442,6 +542,7 @@ function updateLineChart() {
                     beginAtZero: true,
                     ticks: {
                         color: ct?.tick || (appState.darkMode ? '#94A3B8' : '#64748B'),
+                        font: { family: prefs.fontFamily, size: prefs.fontSize, weight: prefs.fontWeight },
                         callback: function(value) {
                             return value.toFixed(2);
                         }
@@ -466,12 +567,54 @@ function updateLineChart() {
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            return `${context.parsed.y.toFixed(3)} tCO₂e`;
+                            return `${context.parsed.y.toFixed(3)} ${chartLabelForUnit()}`;
                         }
                     }
                 }
             }
         }
+    });
+}
+
+function updateSourceTrendChart() {
+    if (!window.carbonCalc?.getMonthlyTotalsByCategory) return;
+    const ct = _chartTheme();
+    const prefs = getChartPrefs();
+    const chartEl = document.getElementById('sourceTrendChart');
+    if (!chartEl) return;
+    const dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory();
+    const labels = appState.currentLanguage === 'en'
+        ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        : ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    if (sourceTrendChart) sourceTrendChart.destroy();
+    sourceTrendChart = new Chart(chartEl, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: Object.keys(dataByCategory).map((cat, idx) => ({
+                label: cat.charAt(0).toUpperCase() + cat.slice(1),
+                data: (dataByCategory[cat] || []).map(convertTonnesToDisplayValue),
+                borderColor: [prefs.primaryColor, prefs.secondaryColor, '#F59E0B', '#DC2626', '#64748B'][idx % 5],
+                tension: 0.35,
+                fill: false,
+            })),
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: ct?.legend || (appState.darkMode ? '#E2E8F0' : '#0F172A'),
+                        font: { family: prefs.fontFamily, size: prefs.fontSize, weight: prefs.fontWeight },
+                    },
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(3)} ${chartLabelForUnit()}`,
+                    },
+                },
+            },
+        },
     });
 }
 
@@ -896,5 +1039,10 @@ window.updateBankReconciliationChart = updateBankReconciliationChart;
 window.updateCashFlowChart = updateCashFlowChart;
 window.updateAccountSummaryChart = updateAccountSummaryChart;
 window.updateAccountsCharts = updateAccountsCharts;
+window.saveChartPrefs = saveChartPrefs;
+window.getChartPrefs = getChartPrefs;
+window.openChartStyleModal = openChartStyleModal;
+window.applyChartStylePrefs = applyChartStylePrefs;
+window.resetChartStyleDefaults = resetChartStyleDefaults;
 
 

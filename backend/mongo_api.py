@@ -138,6 +138,28 @@ COUNTRY_BASE_FACTORS_2025 = {
         "staff_commute_car_km": 0.171, "staff_commute_bus_km": 0.089,
         "wfh_day": 0.92, "materials_paper_kg": 0.94,
         "refrigerant_R410A": 2088, "refrigerant_R134a": 1430, "refrigerant_R32": 675, "refrigerant_R404A": 3922, "refrigerant_R407C": 1774,
+        "refrigerant_R407A": 2107, "refrigerant_R408A": 3152,
+        "car_petrol_average": 0.1743, "car_diesel_average": 0.16844,
+        "car_hybrid_small": 0.10275, "car_hybrid_medium": 0.10698, "car_hybrid_large": 0.1448, "car_hybrid_average": 0.11558,
+        "car_plugin_hybrid_small": 0.0586, "car_plugin_hybrid_medium": 0.09251, "car_plugin_hybrid_large": 0.10515, "car_plugin_hybrid_average": 0.09712,
+        "motorbike_small": 0.08277, "motorbike_medium": 0.10086, "motorbike_large": 0.13237, "motorbike_average": 0.11337,
+        "taxi_regular": 0.14549, "taxi_black_cab": 0.20793,
+        "bus_local": 0.1195, "bus_local_london": 0.07856, "bus_local_average": 0.10312, "bus_coach": 0.02732,
+        "rail_international": 0.00497, "rail_light_tram": 0.02991, "rail_underground": 0.0275,
+        "flight_short_economy": 0.15298, "flight_short_average": 0.15553, "flight_short_business": 0.22947,
+        "flight_long_economy": 0.14615, "flight_long_average": 0.19085, "flight_long_business": 0.42385,
+        "flight_non_uk_economy": 0.1392452, "flight_non_uk_average": 0.18181, "flight_non_uk_business": 0.40379,
+        "van_diesel_average": 0.2471, "van_petrol_average": 0.21962,
+        "hgv_diesel": 0.8654, "hgv_diesel_refrigerated": 1.0142,
+        "freight_flight_domestic": 2.52129, "freight_flight_short_haul": 1.1681,
+        "freight_flight_long_haul": 0.59943, "freight_flight_international": 0.59943,
+        "rail_freight_train": 0.02556, "cargo_ship_bulk": 0.003539, "cargo_ship_general": 0.013232,
+        "cargo_ship_container": 0.016142, "cargo_ship_vehicle": 0.038581, "cargo_ship_refrigerated": 0.01308,
+        "hotel_uk": 13.9, "hotel_uk_london": 13.8,
+        "materials_construction_avg": 79.2678,
+        "materials_aggregates_primary": 7.7726, "materials_aggregates_reused": 2.21, "materials_aggregates_closed_loop": 3.2068,
+        "materials_asphalt_primary": 39.2125, "materials_asphalt_reused": 1.7383, "materials_asphalt_closed_loop": 28.6668,
+        "materials_bricks_primary": 241.7726, "materials_concrete_primary": 131.7726, "materials_concrete_closed_loop": 3.2068,
     },
     "BRAZIL": {
         "water_supply": 0.421, "water_treatment": 0.856,
@@ -170,6 +192,14 @@ COUNTRY_BASE_FACTORS_2025 = {
         "refrigerant_R410A": 2088, "refrigerant_R134a": 1430, "refrigerant_R32": 675, "refrigerant_R404A": 3922, "refrigerant_R407C": 1774,
     },
 }
+
+# Ensure sheet-parity keys exist for every country (fallback to UK when country-specific
+# values are unavailable in the workbook) so all source options calculate.
+for _country_key, _factor_map in COUNTRY_BASE_FACTORS_2025.items():
+    if _country_key == "UK":
+        continue
+    for _src_key, _src_val in COUNTRY_BASE_FACTORS_2025["UK"].items():
+        _factor_map.setdefault(_src_key, _src_val)
 
 
 def _build_default_conversion_factors():
@@ -407,6 +437,53 @@ def send_verification_email(to_addr: str, code: str) -> None:
     raise RuntimeError('Email delivery is not configured for either Resend or SMTP.')
 
 
+def _send_plain_email(subject: str, body: str, to_addr: str) -> None:
+    server = (os.environ.get('MAIL_SERVER', '') or '').strip()
+    port = int(os.environ.get('MAIL_PORT', '587'))
+    user = (os.environ.get('MAIL_USERNAME', '') or '').strip()
+    password = (os.environ.get('MAIL_PASSWORD', '') or '').strip()
+    sender = (os.environ.get('MAIL_DEFAULT_SENDER', '') or '').strip()
+    use_ssl = os.environ.get('MAIL_USE_SSL', '').lower() in ('1', 'true', 'yes')
+    timeout_sec = float(os.environ.get('MAIL_TIMEOUT_SECONDS', '8'))
+    if not (server and sender and user and password):
+        raise RuntimeError('SMTP notification settings unavailable')
+    msg = EmailMessage()
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = to_addr
+    msg.set_content(body)
+    if use_ssl:
+        with smtplib.SMTP_SSL(server, port, timeout=timeout_sec) as smtp:
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    else:
+        with smtplib.SMTP(server, port, timeout=timeout_sec) as smtp:
+            smtp.starttls()
+            smtp.login(user, password)
+            smtp.send_message(msg)
+
+
+def notify_sustain_quality_new_registration(email: str, organization_name: str | None, full_name: str | None) -> bool:
+    recipient = (os.environ.get('SUSTAIN_QUALITY_NOTIFY_EMAIL') or '').strip()
+    if not recipient:
+        return False
+    timestamp = datetime.datetime.utcnow().isoformat()
+    body = (
+        'New CarbonCalculator registration received.\n\n'
+        f'Email: {email}\n'
+        f'Full name: {full_name or "N/A"}\n'
+        f'Organization: {organization_name or "N/A"}\n'
+        f'Time (UTC): {timestamp}\n'
+    )
+    try:
+        _send_plain_email('New user registration - CarbonCalculator', body, recipient)
+        return True
+    except Exception as e:
+        # Retry-safe: log only, do not block signup
+        print(f'WARN: registration notification email failed: {e}', file=sys.stderr)
+        return False
+
+
 def _issue_and_send_verification(email: str) -> tuple[str | None, str | None]:
     """
     Generate a new code, return (plain_code, warning_message_or_none).
@@ -531,9 +608,12 @@ def _sanitize_site_data_payload(payload: dict) -> dict:
 _SOURCE_TO_BACKEND_FACTOR_KEY = {
     'water': 'water_supply',
     'wastewater': 'water_treatment',
+    'water_reuse': 'water_supply',
     'electricity': 'electricity_grid',
     'naturalGas': 'natural_gas',
     'diesel': 'heating_oil',
+    'lpg': 'lpg',
+    'coal': 'coal',
     'waste': 'waste_incineration',
     'wasteRecycled': 'waste_recycled',
     'waste_composted': 'waste_composted',
@@ -547,25 +627,105 @@ _SOURCE_TO_BACKEND_FACTOR_KEY = {
     'business_travel_hotel_night': 'hotel_stay_night',
     'freight_road_tonne_km': 'freight_road_tonne_km',
     'freight_air_tonne_km': 'freight_air_tonne_km',
+    'freight_sea_tonne_km': 'cargo_ship_container',
     'staff_commute_car_km': 'staff_commute_car_km',
     'staff_commute_bus_km': 'staff_commute_bus_km',
+    'staff_commute_rail_km': 'rail_national',
     'wfh_day': 'wfh_day',
     'materials_paper_kg': 'materials_paper_kg',
+    'materials_steel_kg': 'materials_construction_avg',
     'refrigerant_R410A': 'refrigerant_R410A',
     'refrigerant_R134a': 'refrigerant_R134a',
     'refrigerant_R32': 'refrigerant_R32',
+    'refrigerant_R404A': 'refrigerant_R404A',
+    'refrigerant_R407A': 'refrigerant_R407A',
+    'refrigerant_R407C': 'refrigerant_R407C',
+    'refrigerant_R408A': 'refrigerant_R408A',
+    'waste_landfill': 'waste_landfill',
+    'waste_to_energy': 'waste_incineration',
+    'waste_to_recycling': 'waste_recycled',
+    'waste_to_composting': 'waste_composted',
+    'waste_incineration': 'waste_incineration',
+    'waste_recycled': 'waste_recycled',
+    'car_petrol_small': 'car_petrol_small',
+    'car_petrol_medium': 'car_petrol_medium',
+    'car_petrol_large': 'car_petrol_large',
+    'car_petrol_average': 'car_petrol_average',
+    'car_diesel_small': 'car_diesel_small',
+    'car_diesel_medium': 'car_diesel_medium',
+    'car_diesel_large': 'car_diesel_large',
+    'car_diesel_average': 'car_diesel_average',
+    'car_hybrid_small': 'car_hybrid_small',
+    'car_hybrid_medium': 'car_hybrid_medium',
+    'car_hybrid_large': 'car_hybrid_large',
+    'car_hybrid_average': 'car_hybrid_average',
+    'car_plugin_hybrid_small': 'car_plugin_hybrid_small',
+    'car_plugin_hybrid_medium': 'car_plugin_hybrid_medium',
+    'car_plugin_hybrid_large': 'car_plugin_hybrid_large',
+    'car_plugin_hybrid_average': 'car_plugin_hybrid_average',
+    'motorbike_small': 'motorbike_small',
+    'motorbike_medium': 'motorbike_medium',
+    'motorbike_large': 'motorbike_large',
+    'motorbike_average': 'motorbike_average',
+    'taxi_regular': 'taxi_regular',
+    'taxi_black_cab': 'taxi_black_cab',
+    'bus_local': 'bus_local',
+    'bus_local_london': 'bus_local_london',
+    'bus_local_average': 'bus_local_average',
+    'bus_coach': 'bus_coach',
+    'rail_international': 'rail_international',
+    'rail_light_tram': 'rail_light_tram',
+    'rail_underground': 'rail_underground',
+    'flight_short_economy': 'flight_short_economy',
+    'flight_short_average': 'flight_short_average',
+    'flight_short_business': 'flight_short_business',
+    'flight_long_economy': 'flight_long_economy',
+    'flight_long_average': 'flight_long_average',
+    'flight_long_business': 'flight_long_business',
+    'flight_non_uk_economy': 'flight_non_uk_economy',
+    'flight_non_uk_average': 'flight_non_uk_average',
+    'flight_non_uk_business': 'flight_non_uk_business',
+    'van_diesel_average': 'van_diesel_average',
+    'van_petrol_average': 'van_petrol_average',
+    'hgv_diesel': 'hgv_diesel',
+    'hgv_diesel_refrigerated': 'hgv_diesel_refrigerated',
+    'freight_flight_domestic': 'freight_flight_domestic',
+    'freight_flight_short_haul': 'freight_flight_short_haul',
+    'freight_flight_long_haul': 'freight_flight_long_haul',
+    'freight_flight_international': 'freight_flight_international',
+    'rail_freight_train': 'rail_freight_train',
+    'cargo_ship_bulk': 'cargo_ship_bulk',
+    'cargo_ship_general': 'cargo_ship_general',
+    'cargo_ship_container': 'cargo_ship_container',
+    'cargo_ship_vehicle': 'cargo_ship_vehicle',
+    'cargo_ship_refrigerated': 'cargo_ship_refrigerated',
+    'hotel_uk': 'hotel_uk',
+    'hotel_uk_london': 'hotel_uk_london',
+    'materials_construction_avg': 'materials_construction_avg',
+    'materials_aggregates_primary': 'materials_aggregates_primary',
+    'materials_aggregates_reused': 'materials_aggregates_reused',
+    'materials_aggregates_closed_loop': 'materials_aggregates_closed_loop',
+    'materials_asphalt_primary': 'materials_asphalt_primary',
+    'materials_asphalt_reused': 'materials_asphalt_reused',
+    'materials_asphalt_closed_loop': 'materials_asphalt_closed_loop',
+    'materials_bricks_primary': 'materials_bricks_primary',
+    'materials_concrete_primary': 'materials_concrete_primary',
+    'materials_concrete_closed_loop': 'materials_concrete_closed_loop',
 }
 _SOURCE_CATEGORY = {
-    'water': 'water', 'wastewater': 'water',
-    'electricity': 'energy', 'naturalGas': 'energy', 'diesel': 'energy',
+    'water': 'water', 'wastewater': 'water', 'water_reuse': 'water',
+    'electricity': 'energy', 'naturalGas': 'energy', 'diesel': 'energy', 'lpg': 'energy', 'coal': 'energy',
     'waste': 'waste', 'wasteRecycled': 'waste', 'waste_composted': 'waste',
+    'waste_landfill': 'waste', 'waste_to_energy': 'waste', 'waste_to_recycling': 'waste', 'waste_to_composting': 'waste',
     'transport_petrol': 'transport', 'transport_diesel': 'transport', 'transport_electric': 'transport',
     'flights_short': 'transport', 'flights_medium': 'transport', 'flights_long': 'transport',
     'business_travel_rail': 'transport', 'business_travel_hotel_night': 'transport',
-    'freight_road_tonne_km': 'transport', 'freight_air_tonne_km': 'transport',
-    'staff_commute_car_km': 'transport', 'staff_commute_bus_km': 'transport',
-    'wfh_day': 'transport', 'materials_paper_kg': 'transport',
+    'freight_road_tonne_km': 'transport', 'freight_air_tonne_km': 'transport', 'freight_sea_tonne_km': 'transport',
+    'staff_commute_car_km': 'transport', 'staff_commute_bus_km': 'transport', 'staff_commute_rail_km': 'transport',
+    'wfh_day': 'transport', 'materials_paper_kg': 'transport', 'materials_steel_kg': 'transport',
     'refrigerant_R410A': 'refrigerants', 'refrigerant_R134a': 'refrigerants', 'refrigerant_R32': 'refrigerants',
+    'refrigerant_R404A': 'refrigerants', 'refrigerant_R407A': 'refrigerants',
+    'refrigerant_R407C': 'refrigerants', 'refrigerant_R408A': 'refrigerants',
 }
 _UNIT_TO_BASE = {
     'water': {'m3': 1.0, 'litres': 0.001, 'gallons': 0.00454609, 'ft3': 0.0283168},
@@ -593,19 +753,31 @@ def lookup_conversion_factor(country: str, year: int | str, source_key: str, uni
     c = (country or 'UK').strip().upper()
     y = _normalize_year(year)
     src = (source_key or '').strip()
-    if src not in _SOURCE_TO_BACKEND_FACTOR_KEY:
+    doc = DEFAULT_CONVERSION_FACTORS.get(f'{c}_{y}') or DEFAULT_CONVERSION_FACTORS.get(f'UK_{y}')
+    factors_bucket = (doc or {}).get('factors') or {}
+    factor_key = _SOURCE_TO_BACKEND_FACTOR_KEY.get(src, src)
+    if factor_key not in factors_bucket:
         return None, f'Unsupported source: {src}'
     category = _SOURCE_CATEGORY.get(src)
+    if not category and isinstance(src, str):
+        if src.startswith('refrigerant_'):
+            category = 'refrigerants'
+        elif src.startswith('waste'):
+            category = 'waste'
+        elif src in ('water', 'wastewater'):
+            category = 'water'
+        elif src in ('electricity', 'naturalGas', 'diesel'):
+            category = 'energy'
+        else:
+            category = 'transport'
     unit_clean = (unit or '').strip().lower()
     if unit_clean:
         allowed = _UNIT_TO_BASE.get(category, {})
         if unit_clean not in allowed:
             return None, f'Unsupported unit "{unit_clean}" for category "{category}"'
-    doc = DEFAULT_CONVERSION_FACTORS.get(f'{c}_{y}') or DEFAULT_CONVERSION_FACTORS.get(f'UK_{y}')
     if not doc:
         return None, f'Missing factors for country/year: {c}/{y}'
-    factor_key = _SOURCE_TO_BACKEND_FACTOR_KEY[src]
-    factor = (doc.get('factors') or {}).get(factor_key)
+    factor = factors_bucket.get(factor_key)
     if factor is None:
         return None, f'Missing factor for source "{src}" ({factor_key})'
     return float(factor), None
@@ -624,6 +796,36 @@ def calculate_emission_kg(country: str, year: int | str, source_key: str, value:
     except (TypeError, ValueError):
         return None, 'Invalid numeric value'
     return numeric * mul * float(factor), None
+
+
+def chatbot_assist(message: str, context: dict | None = None) -> str:
+    msg = (message or '').strip().lower()
+    if not msg:
+        return 'Please enter a question about factors, anomalies, usage, or emissions concepts.'
+    if any(k in msg for k in ('factor', 'conversion', 'source')):
+        return (
+            'Factor suggestion: choose source first, then country + reporting year + unit. '
+            'The tool applies factors by (country, year, source, unit) and shows N/A when missing.'
+        )
+    if any(k in msg for k in ('anomaly', 'outlier', 'missing')):
+        return (
+            'Anomaly guidance: check for empty months, unusually high spikes versus monthly averages, '
+            'and mismatched units/year in the same reporting dataset.'
+        )
+    if any(k in msg for k in ('how', 'use', 'where')):
+        return (
+            'Tool usage: set reporting year/output unit in Assessment Scope, add source rows in Data Input, '
+            'then review totals and trends in Dashboard and QA Sign-off.'
+        )
+    if any(k in msg for k in ('scope 1', 'scope 2', 'scope 3', 'co2e', 'emission')):
+        return (
+            'Concepts: Scope 1 = direct fuel/refrigerants, Scope 2 = purchased electricity, '
+            'Scope 3 = indirect sources like travel, waste, commuting, materials.'
+        )
+    return (
+        'FAQ: use consistent units per source, ensure country/year are set, and review rows marked N/A '
+        'because they are excluded from totals until factor mapping is complete.'
+    )
 
 
 @app.route('/', methods=['GET'])
@@ -693,6 +895,9 @@ def signup():
         "created_at": now,
         "email_verified": True,
     })
+
+    # Notify Sustain Quality about new registration (best effort, non-blocking).
+    notify_sustain_quality_new_registration(em, company_name, data.get('full_name'))
 
     # Initialize factors at org level
     try:
@@ -986,7 +1191,10 @@ def handle_factors():
         query = {"organization_id": org_id}
         factors = list(factors_col.find(query, {"_id": 0}))
         if not factors:
-            factors = init_org_factors(org_id)
+            # New accounts/organizations may not have seeded factors yet.
+            # Seed defaults, then re-read from Mongo so response always reflects DB state.
+            init_org_factors(org_id)
+            factors = list(factors_col.find(query, {"_id": 0}))
         return jsonify(factors), 200
         
     if request.method == 'POST':
@@ -1034,6 +1242,16 @@ def factor_lookup():
         'unit': unit,
         'factor': factor,
     }), 200
+
+
+@app.route('/api/chatbot/assist', methods=['POST'])
+@jwt_required()
+def chatbot_assist_endpoint():
+    payload = request.get_json() or {}
+    message = payload.get('message') or ''
+    context = payload.get('context') or {}
+    reply = chatbot_assist(message, context)
+    return jsonify({'reply': reply, 'fallback': True}), 200
 
 def _png_bytes_from_logo_data_url(data_url: str | None) -> bytes | None:
     """Decode a data: URL to PNG bytes for word/media (accept PNG; rasterize JPEG/WebP via Pillow if installed)."""

@@ -53,6 +53,124 @@ const TAB_QUESTION_PROMPTS = {
     transport: 'Transport tab: include business/staff travel assumptions and mileage evidence source.',
     refrigerants: 'Refrigerants tab: include top-up records, service sheets, and gas type evidence.'
 };
+const QA_CHECKLIST_KEY = 'qaChecklistState';
+
+function getQaChecklistState() {
+    try {
+        return JSON.parse(localStorage.getItem(QA_CHECKLIST_KEY) || '{}');
+    } catch {
+        return {};
+    }
+}
+
+function renderQaState() {
+    const state = getQaChecklistState();
+    const checks = document.querySelectorAll('.qa-check-item');
+    if (!checks.length) return;
+    let completed = 0;
+    checks.forEach((el) => {
+        const key = el.getAttribute('data-key');
+        const checked = state[key] === true;
+        el.checked = checked;
+        if (checked) completed += 1;
+    });
+    const statusEl = document.getElementById('qaSignoffStatus');
+    if (statusEl) {
+        statusEl.textContent = completed === checks.length
+            ? 'Status: QA Complete - Ready for customer sign-off'
+            : `Status: Pending (${completed}/${checks.length} complete)`;
+    }
+}
+
+function generateQaSummary() {
+    const checks = Array.from(document.querySelectorAll('.qa-check-item'));
+    const complete = checks.filter((c) => c.checked).length;
+    const lines = checks.map((c) => `- [${c.checked ? 'x' : ' '}] ${c.parentElement?.textContent?.trim() || c.getAttribute('data-key')}`);
+    const summary = [
+        `QA Sign-off Status: ${complete === checks.length ? 'READY' : 'PENDING'}`,
+        `Completed: ${complete}/${checks.length}`,
+        `Reporting year: ${window.carbonCalc?.getReportingYear?.() || 'n/a'}`,
+        `Output unit: ${window.carbonCalc?.getOutputUnit?.() || 'n/a'}`,
+        '',
+        'Checklist:',
+        ...lines,
+    ].join('\n');
+    const out = document.getElementById('qaSignoffSummary');
+    if (out) out.value = summary;
+    renderQaState();
+}
+
+function copyQaSummary() {
+    const out = document.getElementById('qaSignoffSummary');
+    if (!out || !out.value.trim()) {
+        generateQaSummary();
+    }
+    const text = (out?.value || '').trim();
+    if (!text) return;
+    navigator.clipboard?.writeText(text).catch(() => {});
+}
+
+async function getChatbotReply(message) {
+    const msg = String(message || '').toLowerCase();
+    const hasApi = Boolean(localStorage.getItem('authToken'));
+    if (hasApi) {
+        try {
+            const token = localStorage.getItem('authToken');
+            const response = await fetch(`${API_BASE_URL}/chatbot/assist`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ message }),
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data?.reply) return data.reply;
+            }
+        } catch (err) {
+            console.warn('Chatbot API unavailable, using local fallback', err);
+        }
+    }
+    if (msg.includes('factor')) return 'Suggested factors are selected from your country, reporting year, source, and unit. Check the row source + year + unit first.';
+    if (msg.includes('anomal') || msg.includes('outlier')) return detectAnomaliesSummary();
+    if (msg.includes('how') || msg.includes('use')) return 'Use Assessment Scope to set year/unit context, then enter monthly source data in Data Input. Dashboard updates from the same calculation engine.';
+    if (msg.includes('what is') || msg.includes('define') || msg.includes('scope')) return 'Scope 1 = direct emissions, Scope 2 = purchased energy, Scope 3 = other indirect emissions (travel, waste, materials, etc.).';
+    return 'FAQ: Ensure source + unit + year are set per row. If a factor is missing, the row shows N/A and won\'t be included in totals.';
+}
+
+function detectAnomaliesSummary() {
+    const categories = ['water', 'energy', 'waste', 'transport', 'refrigerants'];
+    const issues = [];
+    categories.forEach((cat) => {
+        const table = document.getElementById(`${cat}Table`);
+        if (!table) return;
+        table.querySelectorAll('.data-row').forEach((row, idx) => {
+            const months = Array.from(row.querySelectorAll('.month-input')).map((i) => parseFloat(i.value) || 0);
+            const nonZero = months.filter((v) => v > 0);
+            const max = Math.max(...months, 0);
+            const avg = nonZero.length ? nonZero.reduce((a, b) => a + b, 0) / nonZero.length : 0;
+            if (nonZero.length === 0) issues.push(`${cat} row ${idx + 1}: all months empty/zero`);
+            if (avg > 0 && max > avg * 5) issues.push(`${cat} row ${idx + 1}: possible outlier (max ${max.toFixed(2)} vs avg ${avg.toFixed(2)})`);
+        });
+    });
+    return issues.length ? `Anomaly review:\n- ${issues.join('\n- ')}` : 'No obvious anomalies detected in current visible data.';
+}
+
+function toggleChatbotPanel(show) {
+    const panel = document.getElementById('chatbotPanel');
+    if (!panel) return;
+    panel.style.display = show ? 'flex' : 'none';
+}
+
+async function sendChatbotMessage() {
+    const input = document.getElementById('chatbotInput');
+    const box = document.getElementById('chatbotMessages');
+    if (!input || !box || !input.value.trim()) return;
+    const userMsg = input.value.trim();
+    box.innerHTML += `<div><strong>You:</strong> ${userMsg}</div>`;
+    input.value = '';
+    const reply = await getChatbotReply(userMsg);
+    box.innerHTML += `<div style="margin-top:6px;"><strong>Assistant:</strong> ${reply}</div>`;
+    box.scrollTop = box.scrollHeight;
+}
 
 const CATEGORY_DEFAULT_UNITS = {
     water: 'm3',
@@ -773,6 +891,9 @@ function addSiteToList(siteId, siteName) {
             <button class="sub-nav-btn" data-sub="input-emissions">
                 <i class="fas fa-cloud"></i> <span data-en="Input Emissions" data-pt="Emissões de Entrada">Input Emissions</span>
             </button>
+            <button class="sub-nav-btn" data-sub="qa-signoff">
+                <i class="fas fa-check-double"></i> <span data-en="QA & Sign-off" data-pt="QA e Aprovação">QA & Sign-off</span>
+            </button>
         </div>
     `;
     
@@ -994,16 +1115,25 @@ function getEmissionSelectHtml(category, selectedKey) {
     const optionsByCategory = {
         water: [
             { key: 'water', labelEn: 'Water supply', labelPt: 'Abastecimento de água' },
-            { key: 'wastewater', labelEn: 'Waste water', labelPt: 'Água residual' }
+            { key: 'wastewater', labelEn: 'Waste water', labelPt: 'Água residual' },
+            { key: 'water_reuse', labelEn: 'Reused/recycled water', labelPt: 'Água reutilizada/reciclada' }
         ],
         energy: [
             { key: 'electricity', labelEn: 'Electricity (grid)', labelPt: 'Eletricidade (rede)' },
             { key: 'naturalGas', labelEn: 'Natural gas', labelPt: 'Gás natural' },
-            { key: 'diesel', labelEn: 'Diesel (generator/boiler)', labelPt: 'Diesel (gerador/caldeira)' }
+            { key: 'diesel', labelEn: 'Diesel (generator/boiler)', labelPt: 'Diesel (gerador/caldeira)' },
+            { key: 'lpg', labelEn: 'LPG', labelPt: 'GLP' },
+            { key: 'coal', labelEn: 'Coal', labelPt: 'Carvão' }
         ],
         waste: [
-            { key: 'waste', labelEn: 'Mixed waste to landfill', labelPt: 'Resíduo misto para aterro' },
-            { key: 'wasteRecycled', labelEn: 'Recycled waste', labelPt: 'Resíduo reciclado' }
+            { key: 'waste_landfill', labelEn: 'Waste to landfill', labelPt: 'Resíduo para aterro' },
+            { key: 'waste_to_energy', labelEn: 'Waste to energy', labelPt: 'Resíduo para energia' },
+            { key: 'waste_to_recycling', labelEn: 'Waste to recycling', labelPt: 'Resíduo para reciclagem' },
+            { key: 'waste_to_composting', labelEn: 'Waste to composting', labelPt: 'Resíduo para compostagem' },
+            // Backward-compatible aliases for older rows
+            { key: 'waste', labelEn: 'Mixed waste to landfill (legacy)', labelPt: 'Resíduo misto para aterro (legado)' },
+            { key: 'wasteRecycled', labelEn: 'Recycled waste (legacy)', labelPt: 'Resíduo reciclado (legado)' },
+            { key: 'waste_composted', labelEn: 'Composted waste (legacy)', labelPt: 'Resíduo compostado (legado)' }
         ],
         transport: [
             { key: 'transport_petrol', labelEn: 'Company vehicles - petrol', labelPt: 'Veículos - gasolina' },
@@ -1016,15 +1146,86 @@ function getEmissionSelectHtml(category, selectedKey) {
             { key: 'business_travel_hotel_night', labelEn: 'Business travel - hotel stay', labelPt: 'Viagem de negócios - hospedagem' },
             { key: 'freight_road_tonne_km', labelEn: 'Freighting goods - road', labelPt: 'Frete de mercadorias - rodoviário' },
             { key: 'freight_air_tonne_km', labelEn: 'Freighting goods - air', labelPt: 'Frete de mercadorias - aéreo' },
+            { key: 'freight_sea_tonne_km', labelEn: 'Freighting goods - sea', labelPt: 'Frete de mercadorias - marítimo' },
             { key: 'staff_commute_car_km', labelEn: 'Staff commute - car', labelPt: 'Deslocamento de equipe - carro' },
             { key: 'staff_commute_bus_km', labelEn: 'Staff commute - bus', labelPt: 'Deslocamento de equipe - ônibus' },
+            { key: 'staff_commute_rail_km', labelEn: 'Staff commute - rail', labelPt: 'Deslocamento de equipe - trem' },
             { key: 'wfh_day', labelEn: 'Working from home', labelPt: 'Trabalho remoto' },
-            { key: 'materials_paper_kg', labelEn: 'Materials - paper', labelPt: 'Materiais - papel' }
+            { key: 'materials_paper_kg', labelEn: 'Materials - paper', labelPt: 'Materiais - papel' },
+            { key: 'materials_steel_kg', labelEn: 'Materials - steel', labelPt: 'Materiais - aço' },
+            { key: 'car_petrol_small', labelEn: 'Car (small) petrol', labelPt: 'Carro (pequeno) gasolina' },
+            { key: 'car_petrol_medium', labelEn: 'Car (medium) petrol', labelPt: 'Carro (médio) gasolina' },
+            { key: 'car_petrol_large', labelEn: 'Car (large) petrol', labelPt: 'Carro (grande) gasolina' },
+            { key: 'car_petrol_average', labelEn: 'Car (average) petrol', labelPt: 'Carro (médio) gasolina' },
+            { key: 'car_diesel_small', labelEn: 'Car (small) diesel', labelPt: 'Carro (pequeno) diesel' },
+            { key: 'car_diesel_medium', labelEn: 'Car (medium) diesel', labelPt: 'Carro (médio) diesel' },
+            { key: 'car_diesel_large', labelEn: 'Car (large) diesel', labelPt: 'Carro (grande) diesel' },
+            { key: 'car_diesel_average', labelEn: 'Car (average) diesel', labelPt: 'Carro (médio) diesel' },
+            { key: 'car_hybrid_small', labelEn: 'Car (small) hybrid', labelPt: 'Carro híbrido (pequeno)' },
+            { key: 'car_hybrid_medium', labelEn: 'Car (medium) hybrid', labelPt: 'Carro híbrido (médio)' },
+            { key: 'car_hybrid_large', labelEn: 'Car (large) hybrid', labelPt: 'Carro híbrido (grande)' },
+            { key: 'car_hybrid_average', labelEn: 'Car (average) hybrid', labelPt: 'Carro híbrido (médio)' },
+            { key: 'car_plugin_hybrid_small', labelEn: 'Car (small) plug-in hybrid', labelPt: 'Carro híbrido plug-in (pequeno)' },
+            { key: 'car_plugin_hybrid_medium', labelEn: 'Car (medium) plug-in hybrid', labelPt: 'Carro híbrido plug-in (médio)' },
+            { key: 'car_plugin_hybrid_large', labelEn: 'Car (large) plug-in hybrid', labelPt: 'Carro híbrido plug-in (grande)' },
+            { key: 'car_plugin_hybrid_average', labelEn: 'Car (average) plug-in hybrid', labelPt: 'Carro híbrido plug-in (médio)' },
+            { key: 'motorbike_small', labelEn: 'Motorbike (small)', labelPt: 'Motocicleta (pequena)' },
+            { key: 'motorbike_medium', labelEn: 'Motorbike (medium)', labelPt: 'Motocicleta (média)' },
+            { key: 'motorbike_large', labelEn: 'Motorbike (large)', labelPt: 'Motocicleta (grande)' },
+            { key: 'motorbike_average', labelEn: 'Motorbike (average)', labelPt: 'Motocicleta (média)' },
+            { key: 'taxi_regular', labelEn: 'Taxi (regular)', labelPt: 'Táxi (regular)' },
+            { key: 'taxi_black_cab', labelEn: 'Taxi (black cab)', labelPt: 'Táxi (black cab)' },
+            { key: 'bus_local', labelEn: 'Bus (local)', labelPt: 'Ônibus (local)' },
+            { key: 'bus_local_london', labelEn: 'Bus (local London)', labelPt: 'Ônibus (Londres)' },
+            { key: 'bus_local_average', labelEn: 'Bus (average local)', labelPt: 'Ônibus (médio local)' },
+            { key: 'bus_coach', labelEn: 'Bus (coach)', labelPt: 'Ônibus rodoviário' },
+            { key: 'rail_international', labelEn: 'Rail (international)', labelPt: 'Trem (internacional)' },
+            { key: 'rail_light_tram', labelEn: 'Rail (light rail/tram)', labelPt: 'Trem leve/VLT' },
+            { key: 'rail_underground', labelEn: 'Rail (underground)', labelPt: 'Metrô' },
+            { key: 'flight_short_economy', labelEn: 'Flight short-haul (economy)', labelPt: 'Voo curta distância (econômica)' },
+            { key: 'flight_short_average', labelEn: 'Flight short-haul (average)', labelPt: 'Voo curta distância (médio)' },
+            { key: 'flight_short_business', labelEn: 'Flight short-haul (business)', labelPt: 'Voo curta distância (executiva)' },
+            { key: 'flight_long_economy', labelEn: 'Flight long-haul (economy)', labelPt: 'Voo longa distância (econômica)' },
+            { key: 'flight_long_average', labelEn: 'Flight long-haul (average)', labelPt: 'Voo longa distância (médio)' },
+            { key: 'flight_long_business', labelEn: 'Flight long-haul (business)', labelPt: 'Voo longa distância (executiva)' },
+            { key: 'flight_non_uk_economy', labelEn: 'Flight non-UK (economy)', labelPt: 'Voo não-UK (econômica)' },
+            { key: 'flight_non_uk_average', labelEn: 'Flight non-UK (average)', labelPt: 'Voo não-UK (médio)' },
+            { key: 'flight_non_uk_business', labelEn: 'Flight non-UK (business)', labelPt: 'Voo não-UK (executiva)' },
+            { key: 'van_diesel_average', labelEn: 'Van (diesel average)', labelPt: 'Van (diesel média)' },
+            { key: 'van_petrol_average', labelEn: 'Van (petrol average)', labelPt: 'Van (gasolina média)' },
+            { key: 'hgv_diesel', labelEn: 'HGV (diesel)', labelPt: 'Caminhão pesado (diesel)' },
+            { key: 'hgv_diesel_refrigerated', labelEn: 'HGV refrigerated (diesel)', labelPt: 'Caminhão refrigerado (diesel)' },
+            { key: 'freight_flight_domestic', labelEn: 'Freight flights domestic', labelPt: 'Frete aéreo doméstico' },
+            { key: 'freight_flight_short_haul', labelEn: 'Freight flights short-haul', labelPt: 'Frete aéreo curta distância' },
+            { key: 'freight_flight_long_haul', labelEn: 'Freight flights long-haul', labelPt: 'Frete aéreo longa distância' },
+            { key: 'freight_flight_international', labelEn: 'Freight flights international', labelPt: 'Frete aéreo internacional' },
+            { key: 'rail_freight_train', labelEn: 'Rail freight train', labelPt: 'Trem de carga' },
+            { key: 'cargo_ship_bulk', labelEn: 'Cargo ship (bulk carrier)', labelPt: 'Navio cargueiro (graneleiro)' },
+            { key: 'cargo_ship_general', labelEn: 'Cargo ship (general cargo)', labelPt: 'Navio cargueiro (carga geral)' },
+            { key: 'cargo_ship_container', labelEn: 'Cargo ship (container)', labelPt: 'Navio porta-contêiner' },
+            { key: 'cargo_ship_vehicle', labelEn: 'Cargo ship (vehicle transport)', labelPt: 'Navio cargueiro (veículos)' },
+            { key: 'cargo_ship_refrigerated', labelEn: 'Cargo ship (refrigerated)', labelPt: 'Navio cargueiro (refrigerado)' },
+            { key: 'hotel_uk', labelEn: 'Hotel stay (UK)', labelPt: 'Hospedagem (UK)' },
+            { key: 'hotel_uk_london', labelEn: 'Hotel stay (UK London)', labelPt: 'Hospedagem (UK Londres)' },
+            { key: 'materials_construction_avg', labelEn: 'Materials - avg construction', labelPt: 'Materiais - construção média' },
+            { key: 'materials_aggregates_primary', labelEn: 'Materials - aggregates primary', labelPt: 'Materiais - agregados primários' },
+            { key: 'materials_aggregates_reused', labelEn: 'Materials - aggregates reused', labelPt: 'Materiais - agregados reutilizados' },
+            { key: 'materials_aggregates_closed_loop', labelEn: 'Materials - aggregates closed-loop', labelPt: 'Materiais - agregados ciclo fechado' },
+            { key: 'materials_asphalt_primary', labelEn: 'Materials - asphalt primary', labelPt: 'Materiais - asfalto primário' },
+            { key: 'materials_asphalt_reused', labelEn: 'Materials - asphalt reused', labelPt: 'Materiais - asfalto reutilizado' },
+            { key: 'materials_asphalt_closed_loop', labelEn: 'Materials - asphalt closed-loop', labelPt: 'Materiais - asfalto ciclo fechado' },
+            { key: 'materials_bricks_primary', labelEn: 'Materials - bricks primary', labelPt: 'Materiais - tijolos primários' },
+            { key: 'materials_concrete_primary', labelEn: 'Materials - concrete primary', labelPt: 'Materiais - concreto primário' },
+            { key: 'materials_concrete_closed_loop', labelEn: 'Materials - concrete closed-loop', labelPt: 'Materiais - concreto ciclo fechado' }
         ],
         refrigerants: [
             { key: 'refrigerant_R410A', labelEn: 'R-410A', labelPt: 'R-410A' },
             { key: 'refrigerant_R134a', labelEn: 'R-134a', labelPt: 'R-134a' },
-            { key: 'refrigerant_R32', labelEn: 'R-32', labelPt: 'R-32' }
+            { key: 'refrigerant_R32', labelEn: 'R-32', labelPt: 'R-32' },
+            { key: 'refrigerant_R404A', labelEn: 'R-404A', labelPt: 'R-404A' },
+            { key: 'refrigerant_R407A', labelEn: 'R-407A', labelPt: 'R-407A' },
+            { key: 'refrigerant_R407C', labelEn: 'R-407C', labelPt: 'R-407C' },
+            { key: 'refrigerant_R408A', labelEn: 'R-408A', labelPt: 'R-408A' }
         ]
     };
 
@@ -1704,6 +1905,7 @@ function toggleDashboardWidgets() {
         { id: 'pie-chart', name: { en: 'Emissions by Category (Pie Chart)', pt: 'Emissões por Categoria (Gráfico de Pizza)' } },
         { id: 'bar-chart', name: { en: 'Year Comparison (Bar Chart)', pt: 'Comparação Anual (Gráfico de Barras)' } },
         { id: 'line-chart', name: { en: 'Monthly Trend (Line Chart)', pt: 'Tendência Mensal (Gráfico de Linha)' } },
+        { id: 'source-trend-chart', name: { en: 'Trend by Source Category', pt: 'Tendência por Categoria' } },
         { id: 'watchlist', name: { en: 'Account Watchlist', pt: 'Contas Monitoradas' } }
     ];
     
@@ -2114,6 +2316,20 @@ function initializeApp() {
         });
         tabQuestionNotesInput.addEventListener('blur', () => saveCurrentSiteData());
     }
+
+    // QA checklist persistence/sign-off helpers
+    document.querySelectorAll('.qa-check-item').forEach((el) => {
+        if (el.dataset.bound === '1') return;
+        el.dataset.bound = '1';
+        el.addEventListener('change', () => {
+            const key = el.getAttribute('data-key');
+            const state = getQaChecklistState();
+            state[key] = el.checked;
+            localStorage.setItem(QA_CHECKLIST_KEY, JSON.stringify(state));
+            renderQaState();
+        });
+    });
+    renderQaState();
     
     // Load local data first for fast UI responsiveness
     loadSitesFromLocalStorage();
@@ -2180,6 +2396,36 @@ function initializeApp() {
         console.error('Error syncing country selector', err);
     }
 
+    // Sync calculation context controls (reporting year + output unit)
+    try {
+        const reportingYearSelect = document.getElementById('reportingYearSelect');
+        if (reportingYearSelect && window.carbonCalc?.getReportingYear) {
+            reportingYearSelect.value = String(window.carbonCalc.getReportingYear());
+            if (reportingYearSelect.dataset.bound !== '1') {
+                reportingYearSelect.dataset.bound = '1';
+                reportingYearSelect.addEventListener('change', () => {
+                    if (window.carbonCalc?.setReportingYear) {
+                        window.carbonCalc.setReportingYear(reportingYearSelect.value);
+                    }
+                });
+            }
+        }
+        const outputUnitSelect = document.getElementById('outputUnitSelect');
+        if (outputUnitSelect && window.carbonCalc?.getOutputUnit) {
+            outputUnitSelect.value = window.carbonCalc.getOutputUnit();
+            if (outputUnitSelect.dataset.bound !== '1') {
+                outputUnitSelect.dataset.bound = '1';
+                outputUnitSelect.addEventListener('change', () => {
+                    if (window.carbonCalc?.setOutputUnit) {
+                        window.carbonCalc.setOutputUnit(outputUnitSelect.value);
+                    }
+                });
+            }
+        }
+    } catch (err) {
+        console.error('Error syncing calculation context controls', err);
+    }
+
     // Auto-save every 5 seconds to local storage and backend
     setInterval(() => {
         if (appState.loggedIn) {
@@ -2210,6 +2456,11 @@ window.addEventListener('DOMContentLoaded', function() {
     }
 
     updateLanguage();
+    const chatbotToggleBtn = document.getElementById('chatbotToggleBtn');
+    if (chatbotToggleBtn && chatbotToggleBtn.dataset.bound !== '1') {
+        chatbotToggleBtn.dataset.bound = '1';
+        chatbotToggleBtn.addEventListener('click', () => toggleChatbotPanel(true));
+    }
     
     // Check if user was previously logged in
     const wasLoggedIn = localStorage.getItem('loggedIn') === 'true';
@@ -2313,6 +2564,10 @@ document.getElementById('langToggleLogin')?.addEventListener('click', toggleLang
 window.toggleDarkMode = toggleDarkMode;
 window.updateLanguage = updateLanguage;
 window.toggleLanguage = toggleLanguage;
+window.toggleChatbotPanel = toggleChatbotPanel;
+window.sendChatbotMessage = sendChatbotMessage;
+window.generateQaSummary = generateQaSummary;
+window.copyQaSummary = copyQaSummary;
 
 // Prevent data loss on page unload
 window.addEventListener('beforeunload', function(e) {

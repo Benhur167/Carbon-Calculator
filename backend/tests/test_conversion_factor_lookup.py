@@ -24,11 +24,21 @@ def test_country_selection_including_brazil_and_bahrain():
 
 
 def test_business_travel_freight_staff_commute_sources_supported():
-    keys = ["business_travel_rail", "freight_road_tonne_km", "staff_commute_car_km"]
+    keys = ["business_travel_rail", "freight_road_tonne_km", "staff_commute_car_km", "freight_sea_tonne_km", "staff_commute_rail_km"]
     for source_key in keys:
         factor, err = api.lookup_conversion_factor("UK", 2025, source_key, "km")
         assert err is None
         assert factor is not None and factor > 0
+
+
+def test_waste_subtypes_supported_end_to_end():
+    for source in ("waste_landfill", "waste_to_energy", "waste_to_recycling", "waste_to_composting"):
+        factor, err = api.lookup_conversion_factor("UK", 2025, source, "tonnes")
+        assert err is None
+        assert factor is not None and factor > 0
+        value, err2 = api.calculate_emission_kg("UK", 2025, source, 2.0, "tonnes")
+        assert err2 is None
+        assert (value or 0) > 0
 
 
 def test_unit_validation_and_factor_lookup():

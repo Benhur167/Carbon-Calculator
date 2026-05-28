@@ -180,6 +180,9 @@
                             <button class="sub-nav-btn" data-sub="input-emissions">
                                 <i class="fas fa-cloud"></i> <span data-en="Input Emissions" data-pt="Emissões de Entrada">Input Emissions</span>
                             </button>
+                            <button class="sub-nav-btn" data-sub="qa-signoff">
+                                <i class="fas fa-check-double"></i> <span data-en="QA & Sign-off" data-pt="QA e Aprovação">QA & Sign-off</span>
+                            </button>
                         </div>
                     </li>
                 </ul>
@@ -238,6 +241,26 @@
                                     <span>|</span>
                                     <span data-en="Import" data-pt="Importar">Import</span>
                                 </div>
+                            </div>
+                        </div>
+                        <div class="form-inline-group" style="gap: 8px;">
+                            <div>
+                                <label data-en="Reporting year" data-pt="Ano de reporte">Reporting year</label>
+                                <select id="reportingYearSelect">
+                                    <option value="2020">2020</option>
+                                    <option value="2021">2021</option>
+                                    <option value="2022">2022</option>
+                                    <option value="2023">2023</option>
+                                    <option value="2024">2024</option>
+                                    <option value="2025" selected>2025</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label data-en="Output unit" data-pt="Unidade de saída">Output unit</label>
+                                <select id="outputUnitSelect">
+                                    <option value="tCO2e" selected>tCO2e</option>
+                                    <option value="kgCO2e">kgCO2e</option>
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -520,12 +543,15 @@
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="electricity" checked> Electricity (grid)</label>
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="naturalGas" checked> Natural gas</label>
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="diesel" checked> Diesel (generator/boiler)</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="lpg" checked> LPG</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="coal" checked> Coal</label>
                                 </div>
 
                                 <div class="conversion-factor-group">
                                     <h3 data-en="Water" data-pt="Água">Water</h3>
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="water" checked> Water supply</label>
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="wastewater" checked> Waste water</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="water_reuse" checked> Reused/recycled water</label>
                                 </div>
 
                                 <div class="conversion-factor-group">
@@ -536,13 +562,25 @@
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="flights_short" checked> Flights (short-haul)</label>
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="flights_medium" checked> Flights (medium-haul)</label>
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="flights_long" checked> Flights (long-haul)</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="business_travel_rail" checked> Business travel (rail)</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="business_travel_hotel_night" checked> Hotel stay</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="freight_road_tonne_km" checked> Freight road</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="freight_air_tonne_km" checked> Freight air</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="freight_sea_tonne_km" checked> Freight sea</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="staff_commute_car_km" checked> Staff commute car</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="staff_commute_bus_km" checked> Staff commute bus</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="staff_commute_rail_km" checked> Staff commute rail</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="wfh_day" checked> WFH</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="materials_paper_kg" checked> Materials paper</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="materials_steel_kg" checked> Materials steel</label>
                                 </div>
 
                                 <div class="conversion-factor-group">
                                     <h3 data-en="Waste" data-pt="Resíduos">Waste</h3>
-                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="waste" checked> Mixed waste to landfill</label>
-                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="wasteRecycled" checked> Recycled waste</label>
-                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="waste_composted" checked> Composted waste</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="waste_landfill" checked> Waste to landfill</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="waste_to_energy" checked> Waste to energy</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="waste_to_recycling" checked> Waste to recycling</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="waste_to_composting" checked> Waste to composting</label>
                                 </div>
 
                                 <div class="conversion-factor-group">
@@ -550,6 +588,8 @@
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="refrigerant_R410A" checked> R-410A</label>
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="refrigerant_R134a" checked> R-134a</label>
                                     <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="refrigerant_R32" checked> R-32</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="refrigerant_R404A" checked> R-404A</label>
+                                    <label><input type="checkbox" class="conversion-factor-checkbox" data-factor-key="refrigerant_R407C" checked> R-407C</label>
                                 </div>
                             </div>
                         </div>
@@ -599,6 +639,34 @@
                             </div>
                         </div>
                     </div>
+
+                    <div id="section-qa-signoff" class="sub-content-section" style="display: none;">
+                        <div class="tab-header">
+                            <h2 data-en="QA / Customer Sign-off" data-pt="QA / Aprovação do Cliente">QA / Customer Sign-off</h2>
+                        </div>
+                        <div class="card p-4">
+                            <p data-en="Complete the closure checklist, then export/copy the sign-off summary." data-pt="Conclua o checklist e exporte/copie o resumo de aprovação.">
+                                Complete the closure checklist, then export/copy the sign-off summary.
+                            </p>
+                            <div id="qaChecklistWrap">
+                                <label><input type="checkbox" class="qa-check-item" data-key="cross_check_feedback"> Cross-check every section against feedback files</label><br>
+                                <label><input type="checkbox" class="qa-check-item" data-key="end_to_end_flow"> Validate end-to-end flow (input -> calc -> dashboard)</label><br>
+                                <label><input type="checkbox" class="qa-check-item" data-key="unit_year_regression"> Regression test unit/year factor logic</label><br>
+                                <label><input type="checkbox" class="qa-check-item" data-key="country_year_lookup"> Verify UK/Brazil/Bahrain country-year lookups</label><br>
+                                <label><input type="checkbox" class="qa-check-item" data-key="sources_visible"> Confirm new sources in input/calc/dashboard</label><br>
+                                <label><input type="checkbox" class="qa-check-item" data-key="ux_review"> Review UX consistency</label><br>
+                                <label><input type="checkbox" class="qa-check-item" data-key="customer_walkthrough"> Customer walkthrough done</label><br>
+                            </div>
+                            <div style="margin-top: 12px;">
+                                <strong id="qaSignoffStatus">Status: Pending</strong>
+                            </div>
+                            <textarea id="qaSignoffSummary" rows="6" style="margin-top: 10px;" placeholder="Sign-off summary will be generated here..."></textarea>
+                            <div style="margin-top: 10px; display: flex; gap: 8px;">
+                                <button class="btn-secondary" type="button" onclick="generateQaSummary()">Generate Summary</button>
+                                <button class="btn-secondary" type="button" onclick="copyQaSummary()">Copy Summary</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Tab Content -->
@@ -644,6 +712,7 @@
                                             <select class="emission-select" data-category="water">
                                                 <option value="water" selected data-en="Water supply" data-pt="Abastecimento de água">Water supply</option>
                                                 <option value="wastewater" data-en="Waste water" data-pt="Água residual">Waste water</option>
+                                                <option value="water_reuse" data-en="Reused/recycled water" data-pt="Água reutilizada/reciclada">Reused/recycled water</option>
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="Water supply" value="Water supply"></td>
@@ -723,6 +792,8 @@
                                                 <option value="electricity" selected data-en="Electricity (grid)" data-pt="Eletricidade (rede)">Electricity (grid)</option>
                                                 <option value="naturalGas" data-en="Natural gas" data-pt="Gás natural">Natural gas</option>
                                                 <option value="diesel" data-en="Diesel (generator/boiler)" data-pt="Diesel (gerador/caldeira)">Diesel (generator/boiler)</option>
+                                                <option value="lpg" data-en="LPG" data-pt="GLP">LPG</option>
+                                                <option value="coal" data-en="Coal" data-pt="Carvão">Coal</option>
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="Electricity" value="Electricity"></td>
@@ -800,8 +871,13 @@
                                     <tr class="data-row">
                                         <td>
                                             <select class="emission-select" data-category="waste">
-                                                <option value="waste" selected data-en="Mixed waste to landfill" data-pt="Resíduo misto para aterro">Mixed waste to landfill</option>
-                                                <option value="wasteRecycled" data-en="Recycled waste" data-pt="Resíduo reciclado">Recycled waste</option>
+                                                <option value="waste_landfill" selected data-en="Waste to landfill" data-pt="Resíduo para aterro">Waste to landfill</option>
+                                                <option value="waste_to_energy" data-en="Waste to energy" data-pt="Resíduo para energia">Waste to energy</option>
+                                                <option value="waste_to_recycling" data-en="Waste to recycling" data-pt="Resíduo para reciclagem">Waste to recycling</option>
+                                                <option value="waste_to_composting" data-en="Waste to composting" data-pt="Resíduo para compostagem">Waste to composting</option>
+                                                <option value="waste" data-en="Mixed waste to landfill (legacy)" data-pt="Resíduo misto para aterro (legado)">Mixed waste to landfill (legacy)</option>
+                                                <option value="wasteRecycled" data-en="Recycled waste (legacy)" data-pt="Resíduo reciclado (legado)">Recycled waste (legacy)</option>
+                                                <option value="waste_composted" data-en="Composted waste (legacy)" data-pt="Resíduo compostado (legado)">Composted waste (legacy)</option>
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="Waste disposal" value="Waste disposal"></td>
@@ -887,10 +963,13 @@
                                                 <option value="business_travel_hotel_night" data-en="Business travel - hotel stay" data-pt="Viagem de negócios - hospedagem">Business travel - hotel stay</option>
                                                 <option value="freight_road_tonne_km" data-en="Freighting goods - road" data-pt="Frete de mercadorias - rodoviário">Freighting goods - road</option>
                                                 <option value="freight_air_tonne_km" data-en="Freighting goods - air" data-pt="Frete de mercadorias - aéreo">Freighting goods - air</option>
+                                                <option value="freight_sea_tonne_km" data-en="Freighting goods - sea" data-pt="Frete de mercadorias - marítimo">Freighting goods - sea</option>
                                                 <option value="staff_commute_car_km" data-en="Staff commute - car" data-pt="Deslocamento de equipe - carro">Staff commute - car</option>
                                                 <option value="staff_commute_bus_km" data-en="Staff commute - bus" data-pt="Deslocamento de equipe - ônibus">Staff commute - bus</option>
+                                                <option value="staff_commute_rail_km" data-en="Staff commute - rail" data-pt="Deslocamento de equipe - trem">Staff commute - rail</option>
                                                 <option value="wfh_day" data-en="Working from home" data-pt="Trabalho remoto">Working from home</option>
                                                 <option value="materials_paper_kg" data-en="Materials - paper" data-pt="Materiais - papel">Materials - paper</option>
+                                                <option value="materials_steel_kg" data-en="Materials - steel" data-pt="Materiais - aço">Materials - steel</option>
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="Company vehicles" value="Company vehicles"></td>
@@ -972,6 +1051,8 @@
                                                 <option value="refrigerant_R410A" selected data-en="R-410A" data-pt="R-410A">R-410A</option>
                                                 <option value="refrigerant_R134a" data-en="R-134a" data-pt="R-134a">R-134a</option>
                                                 <option value="refrigerant_R32" data-en="R-32" data-pt="R-32">R-32</option>
+                                                <option value="refrigerant_R404A" data-en="R-404A" data-pt="R-404A">R-404A</option>
+                                                <option value="refrigerant_R407C" data-en="R-407C" data-pt="R-407C">R-407C</option>
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="R-410A" value="R-410A"></td>
@@ -1012,7 +1093,11 @@
                     <div class="tab-content" data-content="dashboard">
                         <div class="dashboard-header">
                             <h2 data-en="Emissions Dashboard" data-pt="Painel de Emissões">Emissions Dashboard</h2>
+                            <div id="dashboardCalcContext" style="font-size: 0.85rem; color: var(--text-secondary); margin-right: 10px;"></div>
                             <div class="export-actions">
+                                <button class="btn-secondary" onclick="openChartStyleModal()">
+                                    <i class="fas fa-paint-brush"></i> <span data-en="Chart Style" data-pt="Estilo do gráfico">Chart Style</span>
+                                </button>
                                 <button class="btn-secondary" onclick="toggleDashboardWidgets()">
                                     <i class="fas fa-cog"></i> <span data-en="Customize" data-pt="Personalizar">Customize</span>
                                 </button>
@@ -1120,6 +1205,11 @@
                             <div class="chart-card full-width widget-card" data-widget="line-chart">
                                 <h3 data-en="Monthly Emissions Trend" data-pt="Tendência Mensal de Emissões">Monthly Emissions Trend</h3>
                                 <canvas id="lineChart"></canvas>
+                                <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>
+                            </div>
+                            <div class="chart-card full-width widget-card" data-widget="source-trend-chart">
+                                <h3 data-en="Monthly Trend by Source Category" data-pt="Tendência mensal por categoria">Monthly Trend by Source Category</h3>
+                                <canvas id="sourceTrendChart"></canvas>
                                 <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>
                             </div>
                             <div class="chart-card widget-card" data-widget="watchlist" style="display: none;">
@@ -1332,6 +1422,25 @@
                     </div>
                 </div>
             </main>
+        </div>
+    </div>
+
+    <button id="chatbotToggleBtn" class="btn-icon" style="position: fixed; right: 18px; bottom: 18px; z-index: 1200;" title="AI Assistant">
+        <i class="fas fa-robot"></i>
+    </button>
+    <div id="chatbotPanel" class="widget-modal" style="display:none;">
+        <div class="widget-modal-content" style="max-width: 460px;">
+            <div class="widget-modal-header">
+                <h3>AI Assistant</h3>
+                <button class="widget-modal-close" onclick="toggleChatbotPanel(false)"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="widget-modal-body">
+                <div id="chatbotMessages" style="max-height: 260px; overflow:auto; border:1px solid var(--border-color); padding:8px; border-radius:6px;"></div>
+                <textarea id="chatbotInput" rows="3" placeholder="Ask about factors, anomalies, usage help, emissions concepts, FAQ..." style="margin-top:10px;"></textarea>
+            </div>
+            <div class="widget-modal-footer">
+                <button class="btn-primary" onclick="sendChatbotMessage()">Send</button>
+            </div>
         </div>
     </div>
 
