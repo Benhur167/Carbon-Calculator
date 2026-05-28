@@ -40,11 +40,7 @@ const appState = {
 // ============================================
 
 // Render / local API. Streamlit sets window.__CARBON_API_BASE__ when embedded.
-function getApiBaseUrl() {
-    return typeof resolveApiBaseUrl === 'function'
-        ? resolveApiBaseUrl()
-        : window.__CARBON_API_BASE__ || 'https://carboncalculator-2eak.onrender.com/api';
-}
+const API_BASE_URL = 'https://carboncalculator-2eak.onrender.com/api';
 
 const SESSION_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_EXPIRES_AT_KEY = 'sessionExpiresAt';
@@ -366,7 +362,7 @@ async function getChatbotReply(message) {
     if (hasApi) {
         try {
             const token = localStorage.getItem('authToken');
-            const response = await fetch(`${getApiBaseUrl()}/chatbot/assist`, {
+            const response = await fetch(`${API_BASE_URL}/chatbot/assist`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ message }),
@@ -433,30 +429,21 @@ const CATEGORY_DEFAULT_UNITS = {
 function clearAuthSession() {
     appState.loggedIn = false;
     knownUserProfile = null;
-    const orgId = localStorage.getItem('organizationId') || 'default';
-    if (window.OrgPreferences?.clearOrgPreferencesCache) {
-        window.OrgPreferences.clearOrgPreferencesCache();
-    }
-    if (typeof clearAuthSessionStorage === 'function') {
-        clearAuthSessionStorage();
-    } else {
-        localStorage.removeItem('loggedIn');
-        localStorage.removeItem('loginEmail');
-        localStorage.removeItem('userEmail');
-        localStorage.removeItem('authToken');
-        localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
-        localStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
-        localStorage.removeItem('organizationId');
-        localStorage.removeItem('organizationName');
-        localStorage.removeItem('userName');
-        localStorage.removeItem('isOrgAdmin');
-        if (typeof clearOrgAdminMainAppUnlock === 'function') {
-            clearOrgAdminMainAppUnlock();
-        }
-    }
+    localStorage.removeItem('loggedIn');
+    localStorage.removeItem('loginEmail');
+    localStorage.removeItem('userEmail');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
+    localStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
+    // Clear site data (old single-user key + new org-scoped keys)
     localStorage.removeItem(LEGACY_SITES_CACHE_KEY);
+    const orgId = localStorage.getItem('organizationId') || 'default';
     localStorage.removeItem(`carbonCalcSites_${orgId}`);
     localStorage.removeItem(LAST_LOADED_ORG_KEY);
+    localStorage.removeItem('organizationId');
+    localStorage.removeItem('organizationName');
+    localStorage.removeItem('userName');
+    localStorage.removeItem('isOrgAdmin');
 }
 
 function touchSession() {
@@ -581,24 +568,6 @@ function showVerifyPanel(prefillEmail, verificationCode) {
     }
 }
 
-function setLoginSubmitting(isSubmitting) {
-    const btn = document.querySelector('#loginForm button[type="submit"]');
-    if (!btn) return;
-    if (!btn.dataset.defaultLabel) {
-        btn.dataset.defaultLabel = btn.textContent.trim();
-    }
-    btn.disabled = isSubmitting;
-    btn.setAttribute('aria-busy', isSubmitting ? 'true' : 'false');
-    if (isSubmitting) {
-        btn.textContent =
-            appState.currentLanguage === 'pt'
-                ? 'A ligar ao servidor… (até 2 min)'
-                : 'Connecting to server… (up to 2 min)';
-    } else {
-        btn.textContent = btn.dataset.defaultLabel;
-    }
-}
-
 // LOGIN FORM SUBMIT
 document.getElementById('loginForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
@@ -608,24 +577,14 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
     const loginError = document.getElementById('loginError');
     
     if (loginError) loginError.textContent = '';
-    setLoginSubmitting(true);
-    if (loginError) {
-        loginError.textContent =
-            appState.currentLanguage === 'pt'
-                ? 'A aguardar resposta do servidor…'
-                : 'Waiting for server response…';
-    }
-
+    
     try {
-        const response =
-            typeof loginPost === 'function'
-                ? await loginPost(identifier, password)
-                : await fetch(`${getApiBaseUrl()}/login`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ login: identifier, password }),
-                  });
-
+        const response = await fetch(`${API_BASE_URL}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login: identifier, password })
+        });
+        
         const raw = await response.text();
         const data = parseJsonResponse(raw);
         
@@ -654,10 +613,6 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
                 if (data.user.email) {
                     localStorage.setItem('userEmail', data.user.email);
                 }
-                setKnownUserProfile({
-                    full_name: data.user.full_name,
-                    email: data.user.email,
-                });
                 ensureOrganizationSession(
                     data.user.organization_id || '',
                     data.user.company_name || 'My Company'
@@ -665,22 +620,18 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
                 localStorage.setItem('companyName', data.user.company_name || 'My Company');
             }
 
-            const allowOrgMainApp =
-                typeof allowOrgAdminMainApp === 'function' ? allowOrgAdminMainApp() : false;
+            const allowOrgMainApp = localStorage.getItem('orgOpenMainApp') === 'true';
             if (data.user && data.user.is_org_admin && !allowOrgMainApp) {
                 window.location.href = 'organization-users.html';
                 return;
             }
-            if (data.user && data.user.is_org_admin && typeof unlockOrgAdminMainApp === 'function') {
-                unlockOrgAdminMainApp();
-            }
+            localStorage.removeItem('orgOpenMainApp');
             
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('mainApp').style.display = 'flex';
 
-            initializeApp().catch((initErr) => {
-                console.error('initializeApp failed after login:', initErr);
-            });
+            // Show the app immediately; initializeApp loads local state then syncs MongoDB in the background.
+            initializeApp();
         } else {
             if (loginError) {
                 loginError.textContent = loginFailureMessage(response.status, data);
@@ -690,14 +641,10 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
         console.error('Login error:', err);
         if (loginError) {
             loginError.textContent =
-                typeof loginConnectionErrorMessage === 'function'
-                    ? loginConnectionErrorMessage(err, appState.currentLanguage)
-                    : appState.currentLanguage === 'pt'
-                      ? 'Erro de conexão. O servidor está disponível?'
-                      : 'Connection error. Is the backend running?';
+                appState.currentLanguage === 'pt'
+                    ? 'Erro de conexão. O servidor está disponível?'
+                    : 'Connection error. Is the backend running?';
         }
-    } finally {
-        setLoginSubmitting(false);
     }
 });
 
@@ -722,7 +669,7 @@ document.getElementById('signupForm')?.addEventListener('submit', async function
     }
     
     try {
-        const response = await fetch(`${getApiBaseUrl()}/signup`, {
+        const response = await fetch(`${API_BASE_URL}/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -792,7 +739,7 @@ document.getElementById('verifyForm')?.addEventListener('submit', async function
     }
 
     try {
-        const response = await fetch(`${getApiBaseUrl()}/verify-email`, {
+        const response = await fetch(`${API_BASE_URL}/verify-email`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, code }),
@@ -844,7 +791,7 @@ document.getElementById('resendVerificationBtn')?.addEventListener('click', asyn
         return;
     }
     try {
-        const response = await fetch(`${getApiBaseUrl()}/resend-verification`, {
+        const response = await fetch(`${API_BASE_URL}/resend-verification`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email }),
@@ -889,17 +836,12 @@ async function loadUserDataFromBackend() {
 
     let dataResponse;
     let factorsResponse;
-    const apiFetch =
-        typeof carbonApiFetch === 'function'
-            ? (url, opts) => carbonApiFetch(url, opts, 120000)
-            : (url, opts) => fetch(url, opts);
-    const base = getApiBaseUrl();
     try {
         [dataResponse, factorsResponse] = await Promise.all([
-            apiFetch(`${base}/data`, {
+            fetch(`${API_BASE_URL}/data`, {
                 headers: { Authorization: `Bearer ${token}` },
             }),
-            apiFetch(`${base}/factors`, {
+            fetch(`${API_BASE_URL}/factors`, {
                 headers: { Authorization: `Bearer ${token}` },
             }),
         ]);
@@ -909,7 +851,7 @@ async function loadUserDataFromBackend() {
     }
 
     if (dataResponse.status === 401 || factorsResponse.status === 401) {
-        forceLogoutForExpiredSession(false);
+        forceLogoutForExpiredSession(true);
         return false;
     }
 
@@ -982,12 +924,12 @@ async function loadUserDataFromBackend() {
 }
 
 async function syncOrganizationDataFromServer() {
+    resetAppStateForCompany(localStorage.getItem('companyName') || 'My Company');
+    rebuildSitesUIFromState();
     const loadedFromBackend = await loadUserDataFromBackend();
     if (!loadedFromBackend) {
-        resetAppStateForCompany(localStorage.getItem('companyName') || 'My Company');
         loadSitesFromLocalStorage();
     }
-    rebuildSitesUIFromState();
 }
 
 async function saveUserDataToBackend() {
@@ -997,7 +939,7 @@ async function saveUserDataToBackend() {
     if (!token) return;
     
     try {
-        const response = await fetch(`${getApiBaseUrl()}/data`, {
+        const response = await fetch(`${API_BASE_URL}/data`, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -1031,24 +973,17 @@ document.getElementById('logoutBtn')?.addEventListener('click', async function()
         console.error('Final sync before logout failed:', err);
     }
     clearAuthSession();
-    sessionMonitorStarted = false;
     applyQaVisibility();
 
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('mainApp').style.display = 'none';
 
     document.getElementById('loginPassword').value = '';
-    if (document.getElementById('loginEmail')) {
-        document.getElementById('loginEmail').value = '';
-    }
     if (document.getElementById('signupPassword')) document.getElementById('signupPassword').value = '';
     if (document.getElementById('signupConfirmPassword')) document.getElementById('signupConfirmPassword').value = '';
 });
 
 document.getElementById('orgUserSettingsBtn')?.addEventListener('click', function() {
-    if (typeof clearOrgAdminMainAppUnlock === 'function') {
-        clearOrgAdminMainAppUnlock();
-    }
     window.location.href = 'organization-users.html';
 });
 
@@ -2409,7 +2344,7 @@ document.getElementById('companyNameInput')?.addEventListener('input', async fun
     const token = localStorage.getItem('authToken');
     if (token) {
         try {
-            await fetch(`${getApiBaseUrl()}/user`, {
+            await fetch(`${API_BASE_URL}/user`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -2749,15 +2684,12 @@ window.addEventListener('DOMContentLoaded', function() {
             return;
         }
         const isOrgAdmin = localStorage.getItem('isOrgAdmin') === 'true';
-        const allowOrgMainApp =
-            typeof allowOrgAdminMainApp === 'function' ? allowOrgAdminMainApp() : false;
+        const allowOrgMainApp = localStorage.getItem('orgOpenMainApp') === 'true';
         if (isOrgAdmin && !allowOrgMainApp) {
             window.location.href = 'organization-users.html';
             return;
         }
-        if (isOrgAdmin && typeof unlockOrgAdminMainApp === 'function') {
-            unlockOrgAdminMainApp();
-        }
+        localStorage.removeItem('orgOpenMainApp');
         // Auto-login: set state and sync
         appState.loggedIn = true;
         touchSession();
@@ -2772,9 +2704,8 @@ window.addEventListener('DOMContentLoaded', function() {
             document.getElementById('loginEmail').value = savedEmail;
         }
 
-        initializeApp().catch((initErr) => {
-            console.error('initializeApp failed on session restore:', initErr);
-        });
+        // Same as manual login: load MongoDB org data first (see syncOrganizationDataFromServer).
+        initializeApp();
     } else {
         // Show login screen
         document.getElementById('loginScreen').style.display = 'flex';

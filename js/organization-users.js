@@ -246,10 +246,8 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = 'index.html';
     });
     document.getElementById('openOrgDataBtn')?.addEventListener('click', () => {
-        if (typeof unlockOrgAdminMainApp === 'function') {
-            unlockOrgAdminMainApp();
-        }
-        window.location.href = 'index.html?orgMain=1';
+        localStorage.setItem('orgOpenMainApp', 'true');
+        window.location.href = 'index.html';
     });
 
     loadUsers();
