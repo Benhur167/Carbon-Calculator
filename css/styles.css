@@ -568,7 +568,7 @@ body {
     display: flex;
     gap: 16px;
     margin-bottom: 24px;
-    align-items: flex-start;
+    align-items: center;
     flex-wrap: wrap;
 }
 
@@ -619,41 +619,35 @@ body {
     box-shadow: var(--shadow-sm);
 }
 
-/* Company toolbar: responsive grid, no overlapping flex shrink */
+/* Company toolbar: 2-row grid, labels above controls */
 .company-toolbar {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 16px 20px;
-    align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1.2fr);
+    grid-template-rows: auto auto;
+    gap: 14px 20px;
+    align-items: end;
 }
 
-.company-toolbar .toolbar-field label {
+.company-toolbar .toolbar-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.company-toolbar .toolbar-stack label {
     display: block;
     font-weight: 600;
     color: var(--text-secondary);
     font-size: 13px;
-    margin-bottom: 6px;
+    line-height: 1.2;
     white-space: nowrap;
 }
 
-.company-toolbar .toolbar-field-inline {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-}
-
-.company-toolbar .toolbar-field-inline label {
-    margin-bottom: 0;
-    flex-shrink: 0;
-    min-width: 88px;
-}
-
-.company-toolbar .toolbar-field-inline input,
-.company-toolbar .toolbar-select {
-    flex: 1;
-    min-width: 0;
+.company-toolbar .toolbar-control {
+    box-sizing: border-box;
     width: 100%;
+    min-height: 38px;
     padding: 8px 12px;
     border: 2px solid var(--border-color);
     border-radius: 6px;
@@ -664,28 +658,32 @@ body {
 
 .company-toolbar .toolbar-factors-row {
     display: flex;
-    align-items: flex-end;
+    align-items: stretch;
     gap: 8px;
     min-width: 0;
 }
 
 .company-toolbar .toolbar-factors-row .toolbar-select {
     flex: 1;
-    min-width: 140px;
+    min-width: 0;
 }
 
 .company-toolbar .factors-actions {
     display: flex;
     flex-shrink: 0;
     gap: 6px;
+    align-items: stretch;
 }
 
-.company-toolbar .factors-actions .btn-sm {
+.company-toolbar .factors-action-btn {
     display: inline-flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 2px;
-    padding: 6px 8px;
+    min-width: 52px;
+    min-height: 38px;
+    padding: 4px 8px;
     white-space: nowrap;
 }
 
@@ -695,19 +693,14 @@ body {
     font-weight: 500;
 }
 
-.company-toolbar .toolbar-reporting-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-}
+@media (max-width: 1024px) {
+    .company-toolbar {
+        grid-template-columns: 1fr 1fr;
+    }
 
-.company-toolbar .toolbar-stack {
-    flex: 1 1 120px;
-    min-width: 100px;
-}
-
-.company-toolbar .toolbar-stack .toolbar-select {
-    width: 100%;
+    .company-toolbar .toolbar-stack-factors {
+        grid-column: 1 / -1;
+    }
 }
 
 .form-inline-group {
@@ -1395,15 +1388,11 @@ body {
 
     .company-toolbar {
         grid-template-columns: 1fr;
+        grid-template-rows: none;
     }
 
-    .company-toolbar .toolbar-field-inline {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .company-toolbar .toolbar-field-inline label {
-        min-width: 0;
+    .company-toolbar .toolbar-stack-factors .toolbar-factors-row {
+        flex-wrap: wrap;
     }
     
     .tabs-nav {

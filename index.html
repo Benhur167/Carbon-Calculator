@@ -202,29 +202,29 @@
                         </button>
                     </div>
                     <div class="info-card-inline company-toolbar">
-                        <div class="toolbar-field toolbar-field-inline">
+                        <div class="toolbar-stack">
                             <label for="companyNameInput" data-en="Company Name" data-pt="Nome da Empresa">Company Name</label>
-                            <input type="text" id="companyNameInput" placeholder="Enter company name" value="My Company">
+                            <input type="text" id="companyNameInput" class="toolbar-control" placeholder="Enter company name" value="My Company">
                         </div>
-                        <div class="toolbar-field toolbar-field-inline">
+                        <div class="toolbar-stack toolbar-stack-notes">
                             <label for="companyNotes" data-en="Notes" data-pt="Notas">Notes</label>
-                            <input type="text" id="companyNotes" placeholder="Add any relevant notes here...">
+                            <input type="text" id="companyNotes" class="toolbar-control" placeholder="Add any relevant notes here...">
                         </div>
-                        <div class="toolbar-field toolbar-factors">
+                        <div class="toolbar-stack toolbar-stack-factors">
                             <label for="countrySelect" data-en="Factors database" data-pt="Base de fatores">Factors database</label>
                             <div class="toolbar-factors-row">
-                                <select id="countrySelect" class="toolbar-select">
+                                <select id="countrySelect" class="toolbar-control toolbar-select">
                                     <option value="UK" data-en="UK Govt (DEFRA 2025)" data-pt="Governo do Reino Unido (DEFRA 2025)">UK Govt (DEFRA 2025)</option>
                                     <option value="BRAZIL" data-en="Brazil GHG Protocol (SEEG)" data-pt="Brasil Protocolo GEE (SEEG)">Brazil GHG Protocol (SEEG)</option>
                                 </select>
                                 <div class="factors-actions">
-                                    <button class="btn-secondary btn-sm" type="button"
+                                    <button class="btn-secondary btn-sm factors-action-btn" type="button"
                                             onclick="exportFactorsToExcel()"
                                             title="Export current factors database to Excel">
                                         <i class="fas fa-file-export"></i>
                                         <span class="factors-action-label" data-en="Export" data-pt="Exportar">Export</span>
                                     </button>
-                                    <button class="btn-secondary btn-sm" type="button"
+                                    <button class="btn-secondary btn-sm factors-action-btn" type="button"
                                             title="Import factors from Excel"
                                             onclick="document.getElementById('factorsImportInput').click()">
                                         <i class="fas fa-file-import"></i>
@@ -236,27 +236,23 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="toolbar-field toolbar-reporting">
-                            <div class="toolbar-reporting-row">
-                                <div class="toolbar-stack">
-                                    <label for="reportingYearSelect" data-en="Reporting year" data-pt="Ano de reporte">Reporting year</label>
-                                    <select id="reportingYearSelect" class="toolbar-select">
-                                        <option value="2020">2020</option>
-                                        <option value="2021">2021</option>
-                                        <option value="2022">2022</option>
-                                        <option value="2023">2023</option>
-                                        <option value="2024">2024</option>
-                                        <option value="2025" selected>2025</option>
-                                    </select>
-                                </div>
-                                <div class="toolbar-stack">
-                                    <label for="outputUnitSelect" data-en="Output unit" data-pt="Unidade de saída">Output unit</label>
-                                    <select id="outputUnitSelect" class="toolbar-select">
-                                        <option value="tCO2e" selected>tCO2e</option>
-                                        <option value="kgCO2e">kgCO2e</option>
-                                    </select>
-                                </div>
-                            </div>
+                        <div class="toolbar-stack">
+                            <label for="reportingYearSelect" data-en="Reporting year" data-pt="Ano de reporte">Reporting year</label>
+                            <select id="reportingYearSelect" class="toolbar-control toolbar-select">
+                                <option value="2020">2020</option>
+                                <option value="2021">2021</option>
+                                <option value="2022">2022</option>
+                                <option value="2023">2023</option>
+                                <option value="2024">2024</option>
+                                <option value="2025" selected>2025</option>
+                            </select>
+                        </div>
+                        <div class="toolbar-stack">
+                            <label for="outputUnitSelect" data-en="Output unit" data-pt="Unidade de saída">Output unit</label>
+                            <select id="outputUnitSelect" class="toolbar-control toolbar-select">
+                                <option value="tCO2e" selected>tCO2e</option>
+                                <option value="kgCO2e">kgCO2e</option>
+                            </select>
                         </div>
                     </div>
                 </section>
