@@ -159,6 +159,27 @@ function sanitizeMergedCountryFactors(mergedBucket, defaults) {
 // Current country selection (default UK)
 let currentCountry = 'UK';
 
+const UNIT_TO_BASE_MULTIPLIER = {
+    water: { m3: 1, litres: 0.001, gallons: 0.00454609 },
+    energy: { kwh: 1, mwh: 1000, gj: 277.777778 },
+    waste: { tonnes: 1, kg: 0.001 },
+    transport: { km: 1, miles: 1.609344 },
+    refrigerants: { kg: 1, g: 0.001 },
+};
+
+function resolveCategoryFromTableId(tableId) {
+    if (!tableId) return '';
+    return String(tableId).replace('Table', '');
+}
+
+function toBaseUnitValue(category, unit, value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 0;
+    const multipliers = UNIT_TO_BASE_MULTIPLIER[category] || {};
+    const factor = multipliers[unit] ?? 1;
+    return numeric * factor;
+}
+
 // ============================================
 // CALCULATION FUNCTIONS
 // ============================================
@@ -227,9 +248,12 @@ function calculateRowTotal(row) {
     const monthInputs = row.querySelectorAll('.month-input');
     let total = 0;
     
+    const table = row.closest('table');
+    const category = resolveCategoryFromTableId(table?.id);
+    const rowUnit = row.querySelector('.row-unit-select')?.value || '';
     monthInputs.forEach(input => {
         const value = parseFloat(input.value) || 0;
-        total += value;
+        total += toBaseUnitValue(category, rowUnit, value);
     });
     
     const totalCell = row.querySelector('.total-cell');
@@ -340,7 +364,9 @@ function getMonthlyTotals() {
 
                 monthInputs.forEach((input, index) => {
                     const value = parseFloat(input.value) || 0;
-                    const co2e = (value * conversionFactor) / 1000;
+                    const rowUnit = row.querySelector('.row-unit-select')?.value || '';
+                    const baseValue = toBaseUnitValue(category, rowUnit, value);
+                    const co2e = (baseValue * conversionFactor) / 1000;
                     monthlyData[index] += co2e;
                 });
             });

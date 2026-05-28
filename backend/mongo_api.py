@@ -428,6 +428,70 @@ def _find_user_by_login(users_col, identifier: str):
     return _find_user_by_email(users_col, ident)
 
 
+_ALLOWED_ROW_UNITS = {
+    'water': {'m3', 'litres', 'gallons'},
+    'energy': {'kwh', 'mwh', 'gj'},
+    'waste': {'tonnes', 'kg'},
+    'transport': {'km', 'miles'},
+    'refrigerants': {'kg', 'g'},
+}
+_DEFAULT_ROW_UNIT = {
+    'water': 'm3',
+    'energy': 'kwh',
+    'waste': 'tonnes',
+    'transport': 'km',
+    'refrigerants': 'kg',
+}
+
+
+def _sanitize_site_data_payload(payload: dict) -> dict:
+    """Validate/sanitize site rows and keep backward-compatible shape."""
+    if not isinstance(payload, dict):
+        return {'sites': {}}
+    sites = payload.get('sites')
+    if not isinstance(sites, dict):
+        payload['sites'] = {}
+        return payload
+    for _site_id, site in sites.items():
+        if not isinstance(site, dict):
+            continue
+        data = site.get('data')
+        if not isinstance(data, dict):
+            continue
+        for category, rows in data.items():
+            if category not in _ALLOWED_ROW_UNITS or not isinstance(rows, list):
+                continue
+            clean_rows = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                year = row.get('year')
+                try:
+                    year_int = int(year)
+                except (TypeError, ValueError):
+                    year_int = 2025
+                if year_int < 2020:
+                    year_int = 2020
+                if year_int > 2030:
+                    year_int = 2030
+                unit = str(row.get('unit') or '').strip().lower()
+                if unit not in _ALLOWED_ROW_UNITS[category]:
+                    unit = _DEFAULT_ROW_UNIT[category]
+                months = row.get('months') if isinstance(row.get('months'), list) else []
+                months = [(float(v) if isinstance(v, (int, float)) else 0.0) for v in months[:12]]
+                while len(months) < 12:
+                    months.append(0.0)
+                clean_rows.append({
+                    'description': str(row.get('description') or '')[:500],
+                    'year': year_int,
+                    'months': months,
+                    'emissionType': row.get('emissionType'),
+                    'unit': unit,
+                })
+            data[category] = clean_rows
+    return payload
+
+
 @app.route('/', methods=['GET'])
 def home():
     db_status = "connected" if get_db() is not None else "disconnected"
@@ -753,7 +817,7 @@ def save_user_data():
     if data_col is None: return jsonify({"msg": "DB Error"}), 503
     
     current_identity = get_jwt_identity()
-    data = request.get_json()
+    data = request.get_json() or {}
 
     users_col = get_users_col()
     user = _find_user_by_login(users_col, current_identity) if users_col is not None else None
@@ -762,6 +826,7 @@ def save_user_data():
     if not org_id:
         return jsonify({"msg": "Organization is not linked to this account."}), 400
 
+    data = _sanitize_site_data_payload(data)
     data['email'] = user_email or current_identity  # keep for backwards compatibility
     data['organization_id'] = org_id
     data['updated_at'] = datetime.datetime.utcnow()

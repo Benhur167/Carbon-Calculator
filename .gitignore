@@ -75,6 +75,7 @@ Thumbs.db
 
 # Project requirements artifacts
 requirements/
+requirements/Feedback/
 
 # Local test scripts
 test/

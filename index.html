@@ -174,8 +174,8 @@
                             <button class="sub-nav-btn" data-sub="assessment-scope">
                                 <i class="fas fa-crosshairs"></i> <span data-en="Assessment Scope" data-pt="Escopo da Avaliação">Assessment Scope</span>
                             </button>
-                            <button class="sub-nav-btn" data-sub="conversion-factors">
-                                <i class="fas fa-database"></i> <span data-en="Conversion Factor" data-pt="Fator de Conversão">Conversion Factor</span>
+                            <button class="sub-nav-btn" data-sub="assessment-scope">
+                                <i class="fas fa-database"></i> <span data-en="Scope + Factors" data-pt="Escopo + Fatores">Scope + Factors</span>
                             </button>
                             <button class="sub-nav-btn" data-sub="input-emissions">
                                 <i class="fas fa-cloud"></i> <span data-en="Input Emissions" data-pt="Emissões de Entrada">Input Emissions</span>
@@ -316,6 +316,62 @@
                                 <label data-en="Organisation profile (report narrative)" data-pt="Perfil da organização">Organisation profile (report narrative)</label>
                                 <textarea id="organizationProfileInput" rows="3" placeholder="Replaces the sample community-centre description in the Word report when filled."></textarea>
                             </div>
+                            <div class="form-inline-group">
+                                <label data-en="Sector" data-pt="Setor">Sector</label>
+                                <input type="text" id="orgSectorInput" placeholder="e.g. Commercial real estate"/>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Sub-sector" data-pt="Subsetor">Sub-sector</label>
+                                <input type="text" id="orgSubSectorInput" placeholder="e.g. Mixed-use offices"/>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="SIC / Industry code" data-pt="Código SIC / Indústria">SIC / Industry code</label>
+                                <input type="text" id="orgIndustryCodeInput" placeholder="e.g. 68209"/>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Number of organisations" data-pt="Número de organizações">Number of organisations</label>
+                                <input type="number" id="orgCountInput" min="0" step="1" placeholder="e.g. 1"/>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Event inclusion workflow" data-pt="Fluxo de inclusão de eventos">Event inclusion workflow</label>
+                                <input type="text" id="eventInclusionWorkflowInput" placeholder="How events are approved/included"/>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Event count" data-pt="Quantidade de eventos">Event count</label>
+                                <input type="number" id="eventCountInput" min="0" step="1" placeholder="e.g. 12"/>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Asset/property group" data-pt="Grupo de ativos/propriedade">Asset/property group</label>
+                                <input type="text" id="assetGroupNameInput" placeholder="Group name and short description"/>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Asset address and registered-office flag" data-pt="Endereço do ativo e sinalizador de sede">Asset address and registered-office flag</label>
+                                <input type="text" id="assetAddressInput" placeholder="Full address; indicate if this is registered office"/>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Building profile (type/subtype/years/ownership/occupancy)" data-pt="Perfil do edifício (tipo/subtipo/anos/propriedade/ocupação)">Building profile (type/subtype/years/ownership/occupancy)</label>
+                                <textarea id="buildingProfileInput" rows="2" placeholder="Type, subtype, construction/refurbishment years, ownership, management, occupancy details"></textarea>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Occupancy and dimensions" data-pt="Ocupação e dimensões">Occupancy and dimensions</label>
+                                <textarea id="occupancyDimensionsInput" rows="2" placeholder="FTE, days/hours, GIA, lettable/non-lettable, floors, facade, landscaping"></textarea>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Optional asset fields" data-pt="Campos opcionais do ativo">Optional asset fields</label>
+                                <textarea id="assetOptionalFieldsInput" rows="2" placeholder="Stakeholders, planning restrictions, cafe/restaurant, include in offset"></textarea>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Event general information" data-pt="Informações gerais do evento">Event general information</label>
+                                <textarea id="eventGeneralInfoInput" rows="2" placeholder="Event type, duration, location, attendance summary"></textarea>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Event mobility/accommodation/catering/energy-materials" data-pt="Mobilidade/hospedagem/alimentação/energia-materiais do evento">Event mobility/accommodation/catering/energy-materials</label>
+                                <textarea id="eventOperationalInputsInput" rows="3" placeholder="Employee/guest mobility, accommodation, catering, energy and materials inputs"></textarea>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Onboarding/login confirmation references" data-pt="Referências de onboarding/confirmação de login">Onboarding/login confirmation references</label>
+                                <textarea id="onboardingReferencesInput" rows="2" placeholder="User onboarding fields and confirmation flow references"></textarea>
+                            </div>
                         </div>
                     </div>
 
@@ -366,6 +422,55 @@
                             <div class="form-inline-group full-width">
                                 <label data-en="Extra note 2" data-pt="Nota extra 2">Extra note 2</label>
                                 <textarea id="assessmentExtraNote2Input" rows="2" placeholder=""></textarea>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Water unit" data-pt="Unidade de água">Water unit</label>
+                                <select id="waterUnitInput">
+                                    <option value="m3">m³</option>
+                                    <option value="litres">litres</option>
+                                    <option value="gallons">gallons</option>
+                                </select>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Energy default unit" data-pt="Unidade padrão de energia">Energy default unit</label>
+                                <select id="energyUnitInput">
+                                    <option value="kwh">kWh</option>
+                                    <option value="mwh">MWh</option>
+                                    <option value="gj">GJ</option>
+                                </select>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Waste unit" data-pt="Unidade de resíduos">Waste unit</label>
+                                <select id="wasteUnitInput">
+                                    <option value="tonnes">tonnes</option>
+                                    <option value="kg">kg</option>
+                                </select>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Transport unit" data-pt="Unidade de transporte">Transport unit</label>
+                                <select id="transportUnitInput">
+                                    <option value="km">km</option>
+                                    <option value="miles">miles</option>
+                                </select>
+                            </div>
+                            <div class="form-inline-group">
+                                <label data-en="Refrigerant unit" data-pt="Unidade de refrigerante">Refrigerant unit</label>
+                                <select id="refrigerantsUnitInput">
+                                    <option value="kg">kg</option>
+                                    <option value="g">g</option>
+                                </select>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Other emissions/processes not listed" data-pt="Outras emissões/processos não listados">Other emissions/processes not listed</label>
+                                <textarea id="otherEmissionsInput" rows="2" placeholder="Describe additional emissions/processes and review notes"></textarea>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Standards / policies included" data-pt="Normas / políticas incluídas">Standards / policies included</label>
+                                <textarea id="standardsPoliciesInput" rows="2" placeholder="e.g. GHG Protocol, ISO 14064, SECR, internal policies"></textarea>
+                            </div>
+                            <div class="form-inline-group full-width">
+                                <label data-en="Other standard required" data-pt="Outra norma requerida">Other standard required</label>
+                                <input type="text" id="otherStandardRequiredInput" placeholder="Add other required standard"/>
                             </div>
                         </div>
                     </div>
@@ -492,6 +597,7 @@
                                     <tr>
                                         <th data-en="Emission type" data-pt="Tipo de emissão">Emission type</th>
                                         <th data-en="Description" data-pt="Descrição">Description</th>
+                                        <th data-en="Unit" data-pt="Unidade">Unit</th>
                                         <th data-en="Year" data-pt="Ano">Year</th>
                                         <th>Jan</th>
                                         <th>Feb</th>
@@ -519,6 +625,13 @@
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="Water supply" value="Water supply"></td>
+                                        <td>
+                                            <select class="row-unit-select" data-category="water">
+                                                <option value="m3" selected>m³</option>
+                                                <option value="litres">litres</option>
+                                                <option value="gallons">gallons</option>
+                                            </select>
+                                        </td>
                                         <td><input type="number" value="2025" min="2020" max="2030"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>
@@ -561,6 +674,7 @@
                                     <tr>
                                         <th data-en="Emission type" data-pt="Tipo de emissão">Emission type</th>
                                         <th data-en="Description" data-pt="Descrição">Description</th>
+                                        <th data-en="Unit" data-pt="Unidade">Unit</th>
                                         <th data-en="Year" data-pt="Ano">Year</th>
                                         <th>Jan</th>
                                         <th>Feb</th>
@@ -589,6 +703,13 @@
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="Electricity" value="Electricity"></td>
+                                        <td>
+                                            <select class="row-unit-select" data-category="energy">
+                                                <option value="kwh" selected>kWh</option>
+                                                <option value="mwh">MWh</option>
+                                                <option value="gj">GJ</option>
+                                            </select>
+                                        </td>
                                         <td><input type="number" value="2025" min="2020" max="2030"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>
@@ -631,6 +752,7 @@
                                     <tr>
                                         <th data-en="Emission type" data-pt="Tipo de emissão">Emission type</th>
                                         <th data-en="Description" data-pt="Descrição">Description</th>
+                                        <th data-en="Unit" data-pt="Unidade">Unit</th>
                                         <th data-en="Year" data-pt="Ano">Year</th>
                                         <th>Jan</th>
                                         <th>Feb</th>
@@ -658,6 +780,12 @@
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="Waste disposal" value="Waste disposal"></td>
+                                        <td>
+                                            <select class="row-unit-select" data-category="waste">
+                                                <option value="tonnes" selected>tonnes</option>
+                                                <option value="kg">kg</option>
+                                            </select>
+                                        </td>
                                         <td><input type="number" value="2025" min="2020" max="2030"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>
@@ -700,6 +828,7 @@
                                     <tr>
                                         <th data-en="Emission type" data-pt="Tipo de emissão">Emission type</th>
                                         <th data-en="Description" data-pt="Descrição">Description</th>
+                                        <th data-en="Unit" data-pt="Unidade">Unit</th>
                                         <th data-en="Year" data-pt="Ano">Year</th>
                                         <th>Jan</th>
                                         <th>Feb</th>
@@ -731,6 +860,12 @@
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="Company vehicles" value="Company vehicles"></td>
+                                        <td>
+                                            <select class="row-unit-select" data-category="transport">
+                                                <option value="km" selected>km</option>
+                                                <option value="miles">miles</option>
+                                            </select>
+                                        </td>
                                         <td><input type="number" value="2025" min="2020" max="2030"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>
@@ -773,6 +908,7 @@
                                     <tr>
                                         <th data-en="Emission type" data-pt="Tipo de emissão">Emission type</th>
                                         <th data-en="Description" data-pt="Descrição">Description</th>
+                                        <th data-en="Unit" data-pt="Unidade">Unit</th>
                                         <th data-en="Year" data-pt="Ano">Year</th>
                                         <th>Jan</th>
                                         <th>Feb</th>
@@ -801,6 +937,12 @@
                                             </select>
                                         </td>
                                         <td><input type="text" placeholder="R-410A" value="R-410A"></td>
+                                        <td>
+                                            <select class="row-unit-select" data-category="refrigerants">
+                                                <option value="kg" selected>kg</option>
+                                                <option value="g">g</option>
+                                            </select>
+                                        </td>
                                         <td><input type="number" value="2025" min="2020" max="2030"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
                                         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>

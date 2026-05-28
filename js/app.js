@@ -54,6 +54,14 @@ const TAB_QUESTION_PROMPTS = {
     refrigerants: 'Refrigerants tab: include top-up records, service sheets, and gas type evidence.'
 };
 
+const CATEGORY_DEFAULT_UNITS = {
+    water: 'm3',
+    energy: 'kwh',
+    waste: 'tonnes',
+    transport: 'km',
+    refrigerants: 'kg',
+};
+
 function clearAuthSession() {
     appState.loggedIn = false;
     localStorage.removeItem('loggedIn');
@@ -653,6 +661,11 @@ function setActiveSubNav(subName) {
         } else {
             tabsContent.style.display = 'none';
         }
+        const conversionSection = document.getElementById('section-conversion-factors');
+        if (conversionSection) {
+            conversionSection.style.display = subName === 'assessment-scope' ? 'block' : 'none';
+            conversionSection.classList.toggle('active', subName === 'assessment-scope');
+        }
         if (subName === 'input-emissions') {
             updateInputEmissionsPreview();
         }
@@ -754,8 +767,8 @@ function addSiteToList(siteId, siteName) {
             <button class="sub-nav-btn" data-sub="assessment-scope">
                 <i class="fas fa-crosshairs"></i> <span data-en="Assessment Scope" data-pt="Escopo da Avaliação">Assessment Scope</span>
             </button>
-            <button class="sub-nav-btn" data-sub="conversion-factors">
-                <i class="fas fa-database"></i> <span data-en="Conversion Factor" data-pt="Fator de Conversão">Conversion Factor</span>
+            <button class="sub-nav-btn" data-sub="assessment-scope">
+                <i class="fas fa-database"></i> <span data-en="Scope + Factors" data-pt="Escopo + Fatores">Scope + Factors</span>
             </button>
             <button class="sub-nav-btn" data-sub="input-emissions">
                 <i class="fas fa-cloud"></i> <span data-en="Input Emissions" data-pt="Emissões de Entrada">Input Emissions</span>
@@ -915,18 +928,14 @@ function addDataRow(category) {
     const row = document.createElement('tr');
     row.className = 'data-row';
     
-    let unit = 'm³';
-    if (category === 'energy') unit = 'kWh';
-    else if (category === 'waste') unit = 'tonnes';
-    else if (category === 'transport') unit = 'km';
-    else if (category === 'refrigerants') unit = 'kg';
-    
     // Build emission type selector based on category
     const emissionSelectHtml = getEmissionSelectHtml(category);
+    const defaultUnit = getPreferredUnitForCategory(category);
 
     row.innerHTML = `
         <td>${emissionSelectHtml}</td>
         <td><input type="text" placeholder="Description"></td>
+        <td>${getUnitSelectHtml(category, defaultUnit)}</td>
         <td><input type="number" value="2025" min="2020" max="2030"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>
@@ -947,6 +956,37 @@ function addDataRow(category) {
     
     tbody.appendChild(row);
     attachRowListeners(row);
+}
+
+function getPreferredUnitForCategory(category) {
+    const keyMap = {
+        water: 'waterUnit',
+        energy: 'energyUnit',
+        waste: 'wasteUnit',
+        transport: 'transportUnit',
+        refrigerants: 'refrigerantsUnit',
+    };
+    const key = keyMap[category];
+    if (!key) return CATEGORY_DEFAULT_UNITS[category] || '';
+    return localStorage.getItem(key) || CATEGORY_DEFAULT_UNITS[category] || '';
+}
+
+function getUnitSelectHtml(category, selectedUnit) {
+    const unitsByCategory = {
+        water: [['m3', 'm³'], ['litres', 'litres'], ['gallons', 'gallons']],
+        energy: [['kwh', 'kWh'], ['mwh', 'MWh'], ['gj', 'GJ']],
+        waste: [['tonnes', 'tonnes'], ['kg', 'kg']],
+        transport: [['km', 'km'], ['miles', 'miles']],
+        refrigerants: [['kg', 'kg'], ['g', 'g']],
+    };
+    const options = unitsByCategory[category] || [['unit', 'unit']];
+    const normalized = selectedUnit || CATEGORY_DEFAULT_UNITS[category] || options[0][0];
+    let html = `<select class="row-unit-select" data-category="${category}">`;
+    options.forEach(([val, label]) => {
+        html += `<option value="${val}" ${val === normalized ? 'selected' : ''}>${label}</option>`;
+    });
+    html += '</select>';
+    return html;
 }
 
 // Build emission type dropdown HTML per category
@@ -1006,6 +1046,7 @@ function attachRowListeners(row) {
     const descriptionInput = row.querySelector('input[type="text"]');
     const yearInput = row.querySelector('input[type="number"]:not(.month-input)');
     const emissionSelect = row.querySelector('.emission-select');
+    const unitSelect = row.querySelector('.row-unit-select');
     
     // Save on any input change
     const saveData = () => {
@@ -1040,6 +1081,11 @@ function attachRowListeners(row) {
 
     if (emissionSelect) {
         emissionSelect.addEventListener('change', () => {
+            saveData();
+        });
+    }
+    if (unitSelect) {
+        unitSelect.addEventListener('change', () => {
             saveData();
         });
     }
@@ -1186,6 +1232,7 @@ function loadSiteData(siteId) {
 function loadRowData(row, data) {
     const inputs = row.querySelectorAll('input');
     const emissionSelect = row.querySelector('.emission-select');
+    const unitSelect = row.querySelector('.row-unit-select');
 
     // Inputs: [description, year, months...]
     if (inputs[0]) inputs[0].value = data.description || '';
@@ -1193,6 +1240,9 @@ function loadRowData(row, data) {
 
     if (emissionSelect && data.emissionType) {
         emissionSelect.value = data.emissionType;
+    }
+    if (unitSelect && data.unit) {
+        unitSelect.value = data.unit;
     }
     
     (data.months || []).forEach((value, index) => {
@@ -1236,12 +1286,14 @@ function saveCurrentSiteData() {
                 const inputs = row.querySelectorAll('input');
                 const monthInputs = row.querySelectorAll('.month-input');
                 const emissionSelect = row.querySelector('.emission-select');
+                const unitSelect = row.querySelector('.row-unit-select');
                 
                 const rowData = {
                     description: inputs[0]?.value || '',
                     year: parseInt(inputs[1]?.value) || 2025,
                     months: [],
-                    emissionType: emissionSelect ? emissionSelect.value : null
+                    emissionType: emissionSelect ? emissionSelect.value : null,
+                    unit: unitSelect ? unitSelect.value : getPreferredUnitForCategory(category)
                 };
                 
                 monthInputs.forEach(input => {
@@ -1909,6 +1961,28 @@ function initializeApp() {
     const assessmentGeneralNotesEl = document.getElementById('assessmentGeneralNotesInput');
     const assessmentExtraNote1El = document.getElementById('assessmentExtraNote1Input');
     const assessmentExtraNote2El = document.getElementById('assessmentExtraNote2Input');
+    const orgSectorEl = document.getElementById('orgSectorInput');
+    const orgSubSectorEl = document.getElementById('orgSubSectorInput');
+    const orgIndustryCodeEl = document.getElementById('orgIndustryCodeInput');
+    const orgCountEl = document.getElementById('orgCountInput');
+    const eventInclusionWorkflowEl = document.getElementById('eventInclusionWorkflowInput');
+    const eventCountEl = document.getElementById('eventCountInput');
+    const assetGroupNameEl = document.getElementById('assetGroupNameInput');
+    const assetAddressEl = document.getElementById('assetAddressInput');
+    const buildingProfileEl = document.getElementById('buildingProfileInput');
+    const occupancyDimensionsEl = document.getElementById('occupancyDimensionsInput');
+    const assetOptionalFieldsEl = document.getElementById('assetOptionalFieldsInput');
+    const eventGeneralInfoEl = document.getElementById('eventGeneralInfoInput');
+    const eventOperationalInputsEl = document.getElementById('eventOperationalInputsInput');
+    const onboardingReferencesEl = document.getElementById('onboardingReferencesInput');
+    const waterUnitEl = document.getElementById('waterUnitInput');
+    const energyUnitEl = document.getElementById('energyUnitInput');
+    const wasteUnitEl = document.getElementById('wasteUnitInput');
+    const transportUnitEl = document.getElementById('transportUnitInput');
+    const refrigerantsUnitEl = document.getElementById('refrigerantsUnitInput');
+    const otherEmissionsEl = document.getElementById('otherEmissionsInput');
+    const standardsPoliciesEl = document.getElementById('standardsPoliciesInput');
+    const otherStandardRequiredEl = document.getElementById('otherStandardRequiredInput');
 
     if (orgRegisteredAddressEl) {
         orgRegisteredAddressEl.value = localStorage.getItem('orgRegisteredAddress') || '';
@@ -1937,6 +2011,28 @@ function initializeApp() {
     if (assessmentExtraNote2El) {
         assessmentExtraNote2El.value = localStorage.getItem('assessmentExtraNote2') || '';
     }
+    if (orgSectorEl) orgSectorEl.value = localStorage.getItem('orgSector') || '';
+    if (orgSubSectorEl) orgSubSectorEl.value = localStorage.getItem('orgSubSector') || '';
+    if (orgIndustryCodeEl) orgIndustryCodeEl.value = localStorage.getItem('orgIndustryCode') || '';
+    if (orgCountEl) orgCountEl.value = localStorage.getItem('orgCount') || '';
+    if (eventInclusionWorkflowEl) eventInclusionWorkflowEl.value = localStorage.getItem('eventInclusionWorkflow') || '';
+    if (eventCountEl) eventCountEl.value = localStorage.getItem('eventCount') || '';
+    if (assetGroupNameEl) assetGroupNameEl.value = localStorage.getItem('assetGroupName') || '';
+    if (assetAddressEl) assetAddressEl.value = localStorage.getItem('assetAddress') || '';
+    if (buildingProfileEl) buildingProfileEl.value = localStorage.getItem('buildingProfile') || '';
+    if (occupancyDimensionsEl) occupancyDimensionsEl.value = localStorage.getItem('occupancyDimensions') || '';
+    if (assetOptionalFieldsEl) assetOptionalFieldsEl.value = localStorage.getItem('assetOptionalFields') || '';
+    if (eventGeneralInfoEl) eventGeneralInfoEl.value = localStorage.getItem('eventGeneralInfo') || '';
+    if (eventOperationalInputsEl) eventOperationalInputsEl.value = localStorage.getItem('eventOperationalInputs') || '';
+    if (onboardingReferencesEl) onboardingReferencesEl.value = localStorage.getItem('onboardingReferences') || '';
+    if (waterUnitEl) waterUnitEl.value = localStorage.getItem('waterUnit') || CATEGORY_DEFAULT_UNITS.water;
+    if (energyUnitEl) energyUnitEl.value = localStorage.getItem('energyUnit') || CATEGORY_DEFAULT_UNITS.energy;
+    if (wasteUnitEl) wasteUnitEl.value = localStorage.getItem('wasteUnit') || CATEGORY_DEFAULT_UNITS.waste;
+    if (transportUnitEl) transportUnitEl.value = localStorage.getItem('transportUnit') || CATEGORY_DEFAULT_UNITS.transport;
+    if (refrigerantsUnitEl) refrigerantsUnitEl.value = localStorage.getItem('refrigerantsUnit') || CATEGORY_DEFAULT_UNITS.refrigerants;
+    if (otherEmissionsEl) otherEmissionsEl.value = localStorage.getItem('otherEmissions') || '';
+    if (standardsPoliciesEl) standardsPoliciesEl.value = localStorage.getItem('standardsPolicies') || '';
+    if (otherStandardRequiredEl) otherStandardRequiredEl.value = localStorage.getItem('otherStandardRequired') || '';
 
     bindTextInput(orgRegisteredAddressEl, 'orgRegisteredAddress');
     bindTextInput(organizationProfileEl, 'organizationProfile');
@@ -1947,6 +2043,44 @@ function initializeApp() {
     bindTextInput(assessmentGeneralNotesEl, 'assessmentGeneralNotes');
     bindTextInput(assessmentExtraNote1El, 'assessmentExtraNote1');
     bindTextInput(assessmentExtraNote2El, 'assessmentExtraNote2');
+    bindTextInput(orgSectorEl, 'orgSector');
+    bindTextInput(orgSubSectorEl, 'orgSubSector');
+    bindTextInput(orgIndustryCodeEl, 'orgIndustryCode');
+    bindTextInput(orgCountEl, 'orgCount');
+    bindTextInput(eventInclusionWorkflowEl, 'eventInclusionWorkflow');
+    bindTextInput(eventCountEl, 'eventCount');
+    bindTextInput(assetGroupNameEl, 'assetGroupName');
+    bindTextInput(assetAddressEl, 'assetAddress');
+    bindTextInput(buildingProfileEl, 'buildingProfile');
+    bindTextInput(occupancyDimensionsEl, 'occupancyDimensions');
+    bindTextInput(assetOptionalFieldsEl, 'assetOptionalFields');
+    bindTextInput(eventGeneralInfoEl, 'eventGeneralInfo');
+    bindTextInput(eventOperationalInputsEl, 'eventOperationalInputs');
+    bindTextInput(onboardingReferencesEl, 'onboardingReferences');
+    bindTextInput(otherEmissionsEl, 'otherEmissions');
+    bindTextInput(standardsPoliciesEl, 'standardsPolicies');
+    bindTextInput(otherStandardRequiredEl, 'otherStandardRequired');
+
+    const bindCategoryUnit = (el, storageKey, category) => {
+        if (!el || el.dataset.bound === '1') return;
+        el.dataset.bound = '1';
+        el.addEventListener('change', () => {
+            localStorage.setItem(storageKey, el.value || '');
+            document.querySelectorAll(`#${category}Table .row-unit-select`).forEach((unitEl) => {
+                unitEl.value = el.value || unitEl.value;
+            });
+            saveCurrentSiteData();
+            if (window.carbonCalc && window.carbonCalc.calculateAllTotals) {
+                window.carbonCalc.calculateAllTotals();
+            }
+            if (window.updateDashboard) window.updateDashboard();
+        });
+    };
+    bindCategoryUnit(waterUnitEl, 'waterUnit', 'water');
+    bindCategoryUnit(energyUnitEl, 'energyUnit', 'energy');
+    bindCategoryUnit(wasteUnitEl, 'wasteUnit', 'waste');
+    bindCategoryUnit(transportUnitEl, 'transportUnit', 'transport');
+    bindCategoryUnit(refrigerantsUnitEl, 'refrigerantsUnit', 'refrigerants');
 
     const tabQuestionNotesInput = document.getElementById('tabQuestionNotesInput');
     if (tabQuestionNotesInput && tabQuestionNotesInput.dataset.bound !== '1') {
