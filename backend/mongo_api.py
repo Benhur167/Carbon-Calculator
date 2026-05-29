@@ -312,9 +312,9 @@ def _resend_settings_ready() -> bool:
     )
 
 
-def _send_verification_email_via_resend(to_addr: str, code: str) -> None:
+def _send_email_via_resend(to_addr: str, subject: str, text: str, html: str | None = None) -> None:
     """
-    Send verification email using Resend HTTPS API.
+    Send email using Resend HTTPS API.
     Required env:
       - RESEND_API_KEY
       - RESEND_FROM (or MAIL_DEFAULT_SENDER fallback)
@@ -330,24 +330,11 @@ def _send_verification_email_via_resend(to_addr: str, code: str) -> None:
     payload = {
         'from': from_addr,
         'to': [to_addr],
-        'subject': 'Welcome to SQ Inspect - Your Verification Code',
-        'text': (
-            f'Welcome to SQ Inspect!\n\n'
-            f'We are thrilled to have you on board. To complete your signup and get started, please use the following verification code:\n\n'
-            f'{code}\n\n'
-            f'This code expires in 15 minutes. If you did not sign up for SQ Inspect, you can safely ignore this email.\n'
-        ),
-        'html': (
-            f'<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">'
-            f'<h2 style="color: #2E7D32;">Welcome to SQ Inspect!</h2>'
-            f'<p>We are thrilled to have you on board. To complete your signup and get started, please use the verification code below:</p>'
-            f'<div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 28px; font-weight: bold; letter-spacing: 5px; border-radius: 8px; margin: 20px 0; color: #111;">{code}</div>'
-            f'<p style="color: #555; font-size: 14px;">This code expires in <strong>15 minutes</strong>.</p>'
-            f'<hr style="border: none; border-top: 1px solid #eaeaea; margin: 30px 0;" />'
-            f'<p style="color: #999; font-size: 12px;">If you did not sign up for SQ Inspect, you can safely ignore this email.</p>'
-            f'</div>'
-        )
+        'subject': subject,
+        'text': text,
     }
+    if html:
+        payload['html'] = html
     raw = json.dumps(payload).encode('utf-8')
     req = urllib.request.Request(
         api_url,
@@ -373,6 +360,27 @@ def _send_verification_email_via_resend(to_addr: str, code: str) -> None:
             body = ''
         detail = f' ({body})' if body else ''
         raise RuntimeError(f'Resend API error: HTTP {http_err.code}{detail}') from http_err
+
+
+def _send_verification_email_via_resend(to_addr: str, code: str) -> None:
+    subject = 'Welcome to SQ Inspect - Your Verification Code'
+    text = (
+        f'Welcome to SQ Inspect!\n\n'
+        f'We are thrilled to have you on board. To complete your signup and get started, please use the following verification code:\n\n'
+        f'{code}\n\n'
+        f'This code expires in 15 minutes. If you did not sign up for SQ Inspect, you can safely ignore this email.\n'
+    )
+    html = (
+        f'<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">'
+        f'<h2 style="color: #2E7D32;">Welcome to SQ Inspect!</h2>'
+        f'<p>We are thrilled to have you on board. To complete your signup and get started, please use the verification code below:</p>'
+        f'<div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 28px; font-weight: bold; letter-spacing: 5px; border-radius: 8px; margin: 20px 0; color: #111;">{escape(code)}</div>'
+        f'<p style="color: #555; font-size: 14px;">This code expires in <strong>15 minutes</strong>.</p>'
+        f'<hr style="border: none; border-top: 1px solid #eaeaea; margin: 30px 0;" />'
+        f'<p style="color: #999; font-size: 12px;">If you did not sign up for SQ Inspect, you can safely ignore this email.</p>'
+        f'</div>'
+    )
+    _send_email_via_resend(to_addr, subject, text, html)
 
 
 def _dev_return_code_enabled() -> bool:
@@ -465,20 +473,99 @@ def _send_plain_email(subject: str, body: str, to_addr: str) -> None:
             smtp.send_message(msg)
 
 
-def notify_sustain_quality_new_registration(email: str, organization_name: str | None, full_name: str | None) -> bool:
-    recipient = (os.environ.get('SUSTAIN_QUALITY_NOTIFY_EMAIL') or '').strip()
+DEFAULT_REGISTRATION_NOTIFY_EMAIL = 'hamzamehboob103@gmail.com'
+
+
+def _send_notification_email(subject: str, text: str, to_addr: str, html: str | None = None) -> None:
+    """Send admin/ops notification via Resend when configured, otherwise SMTP."""
+    resend_err = None
+    if _resend_settings_ready():
+        try:
+            _send_email_via_resend(to_addr, subject, text, html)
+            return
+        except Exception as e:
+            resend_err = e
+
+    if _mail_settings_ready():
+        try:
+            _send_plain_email(subject, text, to_addr)
+            return
+        except Exception as smtp_err:
+            if resend_err is not None:
+                raise RuntimeError(
+                    f'Notification email failed via both Resend and SMTP. '
+                    f'Resend error: {resend_err}. SMTP error: {smtp_err}'
+                ) from smtp_err
+            raise RuntimeError(f'Notification email failed via SMTP: {smtp_err}') from smtp_err
+
+    if resend_err is not None:
+        raise RuntimeError(
+            'Notification email failed via Resend and SMTP is not configured. '
+            f'Resend error: {resend_err}'
+        )
+    raise RuntimeError('Notification email is not configured for either Resend or SMTP.')
+
+
+def _registration_notification_label(registration_type: str) -> str:
+    labels = {
+        'organization_signup': 'New organization signup',
+        'org_user_added': 'New organization user added',
+    }
+    return labels.get(registration_type, 'New user registration')
+
+
+def notify_sustain_quality_new_registration(
+    email: str,
+    organization_name: str | None,
+    full_name: str | None,
+    *,
+    username: str | None = None,
+    registration_type: str = 'organization_signup',
+    added_by: str | None = None,
+) -> bool:
+    recipient = (
+        os.environ.get('SUSTAIN_QUALITY_NOTIFY_EMAIL') or DEFAULT_REGISTRATION_NOTIFY_EMAIL
+    ).strip()
     if not recipient:
         return False
+
     timestamp = utc_now().isoformat()
-    body = (
-        'New CarbonCalculator registration received.\n\n'
-        f'Email: {email}\n'
-        f'Full name: {full_name or "N/A"}\n'
-        f'Organization: {organization_name or "N/A"}\n'
-        f'Time (UTC): {timestamp}\n'
+    label = _registration_notification_label(registration_type)
+    subject = f'{label} - CarbonCalculator'
+
+    detail_lines = [
+        ('Registration type', label),
+        ('Email', email or 'N/A'),
+        ('Full name', full_name or 'N/A'),
+        ('Username', username or 'N/A'),
+        ('Organization', organization_name or 'N/A'),
+        ('Registered at (UTC)', timestamp),
+    ]
+    if added_by:
+        detail_lines.append(('Added by', added_by))
+
+    text_lines = ['A new user was registered successfully in CarbonCalculator.', '']
+    for field, value in detail_lines:
+        text_lines.append(f'{field}: {value}')
+    text_body = '\n'.join(text_lines)
+
+    html_rows = ''.join(
+        f'<tr><td style="padding:8px 12px;border-bottom:1px solid #eaeaea;color:#666;">'
+        f'{escape(field)}</td>'
+        f'<td style="padding:8px 12px;border-bottom:1px solid #eaeaea;color:#111;">'
+        f'{escape(value)}</td></tr>'
+        for field, value in detail_lines
     )
+    html_body = (
+        f'<div style="font-family: sans-serif; max-width: 640px; margin: 0 auto; color: #333;">'
+        f'<h2 style="color: #2E7D32;">{escape(label)}</h2>'
+        f'<p>A new user was registered successfully. Signup details are below (password is never included).</p>'
+        f'<table style="width:100%;border-collapse:collapse;margin:20px 0;">{html_rows}</table>'
+        f'</div>'
+    )
+
     try:
-        _send_plain_email('New user registration - CarbonCalculator', body, recipient)
+        _send_notification_email(subject, text_body, recipient, html_body)
         return True
     except Exception as e:
         # Retry-safe: log only, do not block signup
@@ -926,7 +1013,13 @@ def signup():
     })
 
     # Notify Sustain Quality about new registration (best effort, non-blocking).
-    notify_sustain_quality_new_registration(em, company_name, data.get('full_name'))
+    notify_sustain_quality_new_registration(
+        em,
+        company_name,
+        data.get('full_name'),
+        username=username or em.split('@')[0],
+        registration_type='organization_signup',
+    )
 
     return jsonify({
         "msg": "Organization account created successfully. Please log in.",
@@ -1056,6 +1149,15 @@ def org_users():
         # Child users are managed by org admin; no verification step required.
         "email_verified": True,
     })
+
+    notify_sustain_quality_new_registration(
+        email or '',
+        current_user.get("organization_name"),
+        full_name,
+        username=username,
+        registration_type='org_user_added',
+        added_by=current_user.get('email') or current_user.get('username'),
+    )
 
     return jsonify({
         "msg": "User added successfully",

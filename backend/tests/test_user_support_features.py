@@ -14,14 +14,21 @@ def test_registration_notification_success(monkeypatch):
 
     sent = {'count': 0}
 
-    def fake_send(subject, body, to_addr):
+    def fake_send(subject, text, to_addr, html=None):
         sent['count'] += 1
-        assert 'New user registration' in subject
+        assert 'New organization signup' in subject
         assert 'ops@example.com' == to_addr
-        assert 'test@example.com' in body
+        assert 'test@example.com' in text
+        assert html is not None
 
-    monkeypatch.setattr(api, '_send_plain_email', fake_send)
-    ok = api.notify_sustain_quality_new_registration('test@example.com', 'OrgX', 'User X')
+    monkeypatch.setattr(api, '_send_notification_email', fake_send)
+    ok = api.notify_sustain_quality_new_registration(
+        'test@example.com',
+        'OrgX',
+        'User X',
+        username='userx',
+        registration_type='organization_signup',
+    )
     assert ok is True
     assert sent['count'] == 1
 
@@ -29,12 +36,26 @@ def test_registration_notification_success(monkeypatch):
 def test_registration_notification_failure_is_non_blocking(monkeypatch):
     monkeypatch.setenv('SUSTAIN_QUALITY_NOTIFY_EMAIL', 'ops@example.com')
 
-    def fake_send(subject, body, to_addr):
+    def fake_send(subject, text, to_addr, html=None):
         raise RuntimeError('smtp down')
 
-    monkeypatch.setattr(api, '_send_plain_email', fake_send)
+    monkeypatch.setattr(api, '_send_notification_email', fake_send)
     ok = api.notify_sustain_quality_new_registration('test@example.com', 'OrgX', 'User X')
     assert ok is False
+
+
+def test_registration_notification_default_recipient(monkeypatch):
+    monkeypatch.delenv('SUSTAIN_QUALITY_NOTIFY_EMAIL', raising=False)
+
+    sent = {'to': None}
+
+    def fake_send(subject, text, to_addr, html=None):
+        sent['to'] = to_addr
+
+    monkeypatch.setattr(api, '_send_notification_email', fake_send)
+    ok = api.notify_sustain_quality_new_registration('test@example.com', 'OrgX', 'User X')
+    assert ok is True
+    assert sent['to'] == api.DEFAULT_REGISTRATION_NOTIFY_EMAIL
 
 
 def test_chatbot_core_handlers():
