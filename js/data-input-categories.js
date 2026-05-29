@@ -210,7 +210,7 @@
                             <th data-en="Year" data-pt="Ano">Year</th>
                             <th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>May</th><th>Jun</th>
                             <th>Jul</th><th>Aug</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th>
-                            <th data-en="${meta.totalColEn}" data-pt="${meta.totalColPt}">${meta.totalColEn}</th>
+                            <th class="total-col-header" data-en="${meta.totalColEn}" data-pt="${meta.totalColPt}">${meta.totalColEn}</th>
                             <th class="emissions-col-header" data-en="Emissions (tCO₂e)" data-pt="Emissões (tCO₂e)">Emissions (tCO₂e)</th>
                             <th></th>
                         </tr>

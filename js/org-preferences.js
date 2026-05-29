@@ -12,6 +12,7 @@
         { id: 'issueDateInput', key: 'issueDate' },
         { id: 'reportVersionInput', key: 'reportVersion' },
         { id: 'reportStatusSelect', key: 'reportStatus' },
+        { id: 'reportOutputUnitSelect', key: 'carbonCalcOutputUnit' },
         { id: 'organizationProfileInput', key: 'organizationProfile' },
         { id: 'companyNameInput', key: 'companyName' },
         { id: 'companyNotes', key: 'companyNotes' },
@@ -117,8 +118,14 @@
         }
         if (data.carbonCalcOutputUnit && global.carbonCalc?.setOutputUnit) {
             global.carbonCalc.setOutputUnit(data.carbonCalcOutputUnit);
-            const ou = document.getElementById('outputUnitSelect');
-            if (ou) ou.value = data.carbonCalcOutputUnit;
+            if (typeof global.syncOutputUnitSelectValues === 'function') {
+                global.syncOutputUnitSelectValues(data.carbonCalcOutputUnit);
+            } else {
+                const ou = document.getElementById('outputUnitSelect');
+                if (ou) ou.value = data.carbonCalcOutputUnit;
+                const reportOu = document.getElementById('reportOutputUnitSelect');
+                if (reportOu) reportOu.value = data.carbonCalcOutputUnit;
+            }
         }
 
     }

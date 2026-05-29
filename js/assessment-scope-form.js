@@ -634,6 +634,12 @@
 
         const ou = document.getElementById('outputUnitSelect');
         if (ou) ou.value = outputUnit;
+        if (typeof global.syncOutputUnitSelectValues === 'function') {
+            global.syncOutputUnitSelectValues(outputUnit);
+        } else {
+            const reportOu = document.getElementById('reportOutputUnitSelect');
+            if (reportOu) reportOu.value = outputUnit;
+        }
 
         refreshConversionFactorHeadings();
 
@@ -764,6 +770,7 @@
 
     const ROW_UNIT_LABELS = {
         m3: 'm³',
+        million_litres: 'Million litres',
         litres: 'litres',
         gallons: 'gallons',
         ft3: 'ft³',
@@ -783,6 +790,10 @@
         night: 'night',
         day: 'day',
     };
+
+    function getRowUnitDisplayLabel(unit) {
+        return ROW_UNIT_LABELS[unit] || unit || '';
+    }
 
     const EMISSION_EXTRA_ROW_UNITS = {
         freight_road_tonne_km: [['tonne_km', 'tonne-km']],
@@ -968,7 +979,7 @@
 
     function mapAssessmentUnitToRowUnit(category, value, emissionKey) {
         const map = {
-            water: { m3: 'm3', million_litres: 'litres', litres: 'litres', gallons: 'gallons', ft3: 'ft3' },
+            water: { m3: 'm3', million_litres: 'million_litres', litres: 'litres', gallons: 'gallons', ft3: 'ft3' },
             energy: {
                 kwh: 'kwh',
                 litres: 'litres',
@@ -1148,6 +1159,7 @@
     global.AssessmentScopeUnits = {
         resolvePreferredUnit,
         resolveCategoryPreferredUnit,
+        getRowUnitDisplayLabel,
         getEnergyUnitOptions,
         getDataInputUnitOptions,
         getAssessmentQuantityUnitOptions,

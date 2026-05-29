@@ -7,7 +7,7 @@ const SUPPORTED_YEARS = [2020, 2021, 2022, 2023, 2024, 2025];
 const BASE_YEAR = 2025;
 
 const UNIT_TO_BASE_MULTIPLIER = {
-    water: { m3: 1, litres: 0.001, gallons: 0.00454609, ft3: 0.0283168 },
+    water: { m3: 1, million_litres: 1000, litres: 0.001, gallons: 0.00454609, ft3: 0.0283168 },
     energy: { kwh: 1, mwh: 1000, gj: 277.777778, mj: 0.277777778, therms: 29.3071 },
     waste: { tonnes: 1, kg: 0.001, lbs: 0.000453592 },
     transport: { km: 1, miles: 1.609344, passenger_km: 1, tonne_km: 1, night: 1, day: 1 },
@@ -897,6 +897,9 @@ function setOutputUnit(unit) {
         outputUnitSyncDepth -= 1;
     }
     refreshEmissionsUnitLabels();
+    if (typeof window.syncOutputUnitSelectValues === 'function') {
+        window.syncOutputUnitSelectValues(currentOutputUnit);
+    }
     calculateAllTotals();
     if (typeof updateDashboard === 'function') updateDashboard();
     if (typeof updateInputEmissionsPreview === 'function') updateInputEmissionsPreview();
@@ -1016,25 +1019,72 @@ function getRowConversionFactor(row, tableId) {
     }
 }
 
+function getRowUnitDisplayLabel(unit) {
+    if (window.AssessmentScopeUnits?.getRowUnitDisplayLabel) {
+        return window.AssessmentScopeUnits.getRowUnitDisplayLabel(unit);
+    }
+    const labels = {
+        m3: 'm³',
+        million_litres: 'Million litres',
+        kwh: 'kWh',
+        tonnes: 'tonnes',
+        km: 'km',
+        kg: 'kg',
+    };
+    return labels[unit] || unit || '';
+}
+
+function updateDataTableTotalColumnHeader(table) {
+    if (!table) return;
+    const th = table.querySelector('th.total-col-header');
+    if (!th) return;
+    const units = new Set();
+    table.querySelectorAll('tr.data-row .row-unit-select').forEach((sel) => {
+        if (sel.value) units.add(sel.value);
+    });
+    const lang = window.appState?.currentLanguage || 'en';
+    let en;
+    let pt;
+    if (units.size === 1) {
+        const unitLabel = getRowUnitDisplayLabel([...units][0]);
+        en = `Total (${unitLabel})`;
+        pt = `Total (${unitLabel})`;
+    } else if (units.size > 1) {
+        en = 'Total';
+        pt = 'Total';
+    } else {
+        return;
+    }
+    th.textContent = lang === 'pt' ? pt : en;
+    th.setAttribute('data-en', en);
+    th.setAttribute('data-pt', pt);
+}
+
 function calculateRowTotal(row) {
     const monthInputs = row.querySelectorAll('.month-input');
-    let total = 0;
-    
+    let displayTotal = 0;
+    let baseTotal = 0;
+
     const table = row.closest('table');
     const category = resolveCategoryFromTableId(table?.id);
     const unitCategory = resolveUnitCategory(category);
     const rowUnit = row.querySelector('.row-unit-select')?.value || '';
-    monthInputs.forEach(input => {
+    monthInputs.forEach((input) => {
         const value = parseFloat(input.value) || 0;
-        total += toBaseUnitValue(unitCategory, rowUnit, value);
+        displayTotal += value;
+        baseTotal += toBaseUnitValue(unitCategory, rowUnit, value);
     });
-    
+
     const totalCell = row.querySelector('.total-cell');
-    totalCell.textContent = total.toFixed(2);
-    
-    calculateRowCO2(row, total);
-    
-    return total;
+    if (totalCell) {
+        totalCell.textContent = displayTotal.toFixed(2);
+        totalCell.dataset.unit = rowUnit;
+    }
+
+    calculateRowCO2(row, baseTotal);
+    updateDataTableTotalColumnHeader(table);
+
+    return baseTotal;
 }
 
 function calculateRowCO2(row, total) {
@@ -1094,6 +1144,7 @@ function calculateAllTotals() {
             });
             const categoryTotal = calculateCategoryTotal(table);
             grandTotal += categoryTotal;
+            updateDataTableTotalColumnHeader(table);
         }
     });
 
@@ -1356,6 +1407,8 @@ window.carbonCalc = {
     calculateRowTotal,
     calculateCategoryTotal,
     calculateAllTotals,
+    updateDataTableTotalColumnHeader,
+    getRowUnitDisplayLabel,
     getCategoryTotals,
     getMonthlyTotals,
     getMonthlyTotalsByCategory,

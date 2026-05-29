@@ -235,6 +235,35 @@ function syncToolbarOutputUnitToAssessmentScope(outputUnit) {
     }
 }
 
+function syncOutputUnitSelectValues(unit) {
+    const normalized = unit === 'kgCO2e' ? 'kgCO2e' : 'tCO2e';
+    ['outputUnitSelect', 'reportOutputUnitSelect'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el && el.value !== normalized) {
+            el.value = normalized;
+        }
+    });
+}
+window.syncOutputUnitSelectValues = syncOutputUnitSelectValues;
+
+function bindOutputUnitControl(select) {
+    if (!select || select.dataset.outputUnitBound === '1') return;
+    select.dataset.outputUnitBound = '1';
+    select.addEventListener('change', () => {
+        const unit = select.value === 'kgCO2e' ? 'kgCO2e' : 'tCO2e';
+        syncOutputUnitSelectValues(unit);
+        if (window.carbonCalc?.setOutputUnit) {
+            window.carbonCalc.setOutputUnit(unit);
+        }
+    });
+}
+
+function bindOutputUnitControls() {
+    bindOutputUnitControl(document.getElementById('outputUnitSelect'));
+    bindOutputUnitControl(document.getElementById('reportOutputUnitSelect'));
+}
+window.bindOutputUnitControls = bindOutputUnitControls;
+
 function bindAssessmentScopeExtras() {
     const bindScope = (el, key) => {
         if (!el || el.dataset.bound === '1') return;
@@ -254,13 +283,7 @@ function bindAssessmentScopeExtras() {
     bindScope(document.getElementById('scope2EnabledInput'), 'scope2Enabled');
     bindScope(document.getElementById('scope3EnabledInput'), 'scope3Enabled');
 
-    const outputUnitSelect = document.getElementById('outputUnitSelect');
-    if (outputUnitSelect && outputUnitSelect.dataset.asToolbarBound !== '1') {
-        outputUnitSelect.dataset.asToolbarBound = '1';
-        outputUnitSelect.addEventListener('change', () => {
-            syncToolbarOutputUnitToAssessmentScope(outputUnitSelect.value);
-        });
-    }
+    bindOutputUnitControls();
 
     if (window.carbonCalc?.rebuildConversionFactorCheckboxes) {
         window.carbonCalc.rebuildConversionFactorCheckboxes();
@@ -1450,7 +1473,7 @@ function getUnitSelectHtml(category, selectedUnit, emissionKey) {
                 ? window.resolveUnitCategoryForDataTab(category)
                 : category;
         const unitsByCategory = {
-            water: [['m3', 'm³'], ['litres', 'litres'], ['gallons', 'gallons'], ['ft3', 'ft³']],
+            water: [['m3', 'm³'], ['million_litres', 'Million litres']],
             energy: [['kwh', 'kWh'], ['mwh', 'MWh'], ['gj', 'GJ'], ['mj', 'MJ'], ['therms', 'therms']],
             waste: [['tonnes', 'tonnes'], ['kg', 'kg'], ['lbs', 'lbs']],
             transport: [['km', 'km'], ['miles', 'miles'], ['passenger_km', 'passenger-km'], ['tonne_km', 'tonne-km'], ['night', 'night'], ['day', 'day']],
@@ -1496,6 +1519,9 @@ function bindRowUnitSelect(row, unitSelect) {
         saveCurrentSiteData();
         if (typeof updateInputEmissionsPreview === 'function') {
             updateInputEmissionsPreview();
+        }
+        if (window.carbonCalc?.updateDataTableTotalColumnHeader) {
+            window.carbonCalc.updateDataTableTotalColumnHeader(row.closest('table'));
         }
     });
 }
@@ -2562,7 +2588,15 @@ async function initializeApp() {
     if (issueDateEl) issueDateEl.value = getOrgLocalItem('issueDate', '');
     if (reportVersionEl) reportVersionEl.value = getOrgLocalItem('reportVersion', '1.0');
     if (reportStatusEl) reportStatusEl.value = getOrgLocalItem('reportStatus', 'Draft');
+    const reportOutputUnitEl = document.getElementById('reportOutputUnitSelect');
+    if (reportOutputUnitEl) {
+        reportOutputUnitEl.value = getOrgLocalItem('carbonCalcOutputUnit', 'tCO2e');
+    }
     if (organizationProfileEl) organizationProfileEl.value = getOrgLocalItem('organizationProfile', '');
+    bindOutputUnitControls();
+    if (window.carbonCalc?.getOutputUnit) {
+        syncOutputUnitSelectValues(window.carbonCalc.getOutputUnit());
+    }
 
     const savedLogo = getOrgLocalItem('companyLogo', '');
     if (savedLogo) {
@@ -2723,15 +2757,8 @@ async function initializeApp() {
         }
         const outputUnitSelect = document.getElementById('outputUnitSelect');
         if (outputUnitSelect && window.carbonCalc?.getOutputUnit) {
-            outputUnitSelect.value = window.carbonCalc.getOutputUnit();
-            if (outputUnitSelect.dataset.bound !== '1') {
-                outputUnitSelect.dataset.bound = '1';
-                outputUnitSelect.addEventListener('change', () => {
-                    if (window.carbonCalc?.setOutputUnit) {
-                        window.carbonCalc.setOutputUnit(outputUnitSelect.value);
-                    }
-                });
-            }
+            syncOutputUnitSelectValues(window.carbonCalc.getOutputUnit());
+            bindOutputUnitControls();
         }
         if (window.carbonCalc?.refreshEmissionsUnitLabels) {
             window.carbonCalc.refreshEmissionsUnitLabels();

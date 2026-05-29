@@ -340,6 +340,13 @@
                                     <option value="Final" data-en="Final" data-pt="Final">Final</option>
                                 </select>
                             </div>
+                            <div class="form-inline-group">
+                                <label for="reportOutputUnitSelect" data-en="Output unit" data-pt="Unidade de saída">Output unit</label>
+                                <select id="reportOutputUnitSelect">
+                                    <option value="tCO2e" selected data-en="Tonnes (tCO₂e)" data-pt="Toneladas (tCO₂e)">Tonnes (tCO₂e)</option>
+                                    <option value="kgCO2e" data-en="Kilograms (kgCO₂e)" data-pt="Quilogramas (kgCO₂e)">Kilograms (kgCO₂e)</option>
+                                </select>
+                            </div>
                             <div class="form-inline-group full-width">
                                 <label data-en="Organisation profile (report narrative)" data-pt="Perfil da organização">Organisation profile (report narrative)</label>
                                 <textarea id="organizationProfileInput" rows="3" placeholder="Replaces the sample description in the Word report when filled."></textarea>
@@ -501,7 +508,7 @@
                                         <th>Oct</th>
                                         <th>Nov</th>
                                         <th>Dec</th>
-                                        <th data-en="Total (m³)" data-pt="Total (m³)">Total (m³)</th>
+                                        <th class="total-col-header" data-en="Total (m³)" data-pt="Total (m³)">Total (m³)</th>
                                         <th class="emissions-col-header" data-en="Emissions (tCO₂e)" data-pt="Emissões (tCO₂e)">Emissions (tCO₂e)</th>
                                         <th></th>
                                     </tr>
@@ -519,9 +526,7 @@
                                         <td>
                                             <select class="row-unit-select" data-category="water">
                                                 <option value="m3" selected>m³</option>
-                                                <option value="litres">litres</option>
-                                                <option value="gallons">gallons</option>
-                                                <option value="ft3">ft³</option>
+                                                <option value="million_litres">Million litres</option>
                                             </select>
                                         </td>
                                         <td><input type="number" value="2025" min="2020" max="2030"></td>
@@ -580,7 +585,7 @@
                                         <th>Oct</th>
                                         <th>Nov</th>
                                         <th>Dec</th>
-                                        <th data-en="Total (kWh)" data-pt="Total (kWh)">Total (kWh)</th>
+                                        <th class="total-col-header" data-en="Total (kWh)" data-pt="Total (kWh)">Total (kWh)</th>
                                         <th class="emissions-col-header" data-en="Emissions (tCO₂e)" data-pt="Emissões (tCO₂e)">Emissions (tCO₂e)</th>
                                         <th></th>
                                     </tr>
@@ -662,7 +667,7 @@
                                         <th>Oct</th>
                                         <th>Nov</th>
                                         <th>Dec</th>
-                                        <th data-en="Total (tonnes)" data-pt="Total (ton)">Total (tonnes)</th>
+                                        <th class="total-col-header" data-en="Total (tonnes)" data-pt="Total (ton)">Total (tonnes)</th>
                                         <th class="emissions-col-header" data-en="Emissions (tCO₂e)" data-pt="Emissões (tCO₂e)">Emissions (tCO₂e)</th>
                                         <th></th>
                                     </tr>
@@ -744,7 +749,7 @@
                                         <th>Oct</th>
                                         <th>Nov</th>
                                         <th>Dec</th>
-                                        <th data-en="Total (km)" data-pt="Total (km)">Total (km)</th>
+                                        <th class="total-col-header" data-en="Total (km)" data-pt="Total (km)">Total (km)</th>
                                         <th class="emissions-col-header" data-en="Emissions (tCO₂e)" data-pt="Emissões (tCO₂e)">Emissions (tCO₂e)</th>
                                         <th></th>
                                     </tr>
@@ -825,7 +830,7 @@
                                         <th>Oct</th>
                                         <th>Nov</th>
                                         <th>Dec</th>
-                                        <th data-en="Total (kg)" data-pt="Total (kg)">Total (kg)</th>
+                                        <th class="total-col-header" data-en="Total (kg)" data-pt="Total (kg)">Total (kg)</th>
                                         <th class="emissions-col-header" data-en="Emissions (tCO₂e)" data-pt="Emissões (tCO₂e)">Emissions (tCO₂e)</th>
                                         <th></th>
                                     </tr>
