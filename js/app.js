@@ -377,7 +377,7 @@ async function getChatbotReply(message) {
     }
     if (msg.includes('factor')) return 'Suggested factors are selected from your country, reporting year, source, and unit. Check the row source + year + unit first.';
     if (msg.includes('anomal') || msg.includes('outlier')) return detectAnomaliesSummary();
-    if (msg.includes('how') || msg.includes('use')) return 'Use Assessment Scope to set year/unit context, then enter monthly source data in Data Input. Dashboard updates from the same calculation engine.';
+    if (msg.includes('how') || msg.includes('use')) return 'Use Assessment Scope / Conversion Factors to set year/unit context, then enter monthly source data in Data Input. Dashboard updates from the same calculation engine.';
     if (msg.includes('what is') || msg.includes('define') || msg.includes('scope')) return 'Scope 1 = direct emissions, Scope 2 = purchased energy, Scope 3 = other indirect emissions (travel, waste, materials, etc.).';
     return 'FAQ: Ensure source + unit + year are set per row. If a factor is missing, the row shows N/A and won\'t be included in totals.';
 }
@@ -1181,7 +1181,7 @@ function addSiteToList(siteId, siteName) {
                 <i class="fas fa-info-circle"></i> <span data-en="General Info" data-pt="Informações Gerais">General Info</span>
             </button>
             <button class="sub-nav-btn" data-sub="assessment-scope">
-                <i class="fas fa-crosshairs"></i> <span data-en="Assessment Scope" data-pt="Escopo da Avaliação">Assessment Scope</span>
+                <i class="fas fa-crosshairs"></i> <span data-en="Assessment Scope / Conversion Factors" data-pt="Escopo da Avaliação / Fatores de Conversão">Assessment Scope / Conversion Factors</span>
             </button>
             <button class="sub-nav-btn" data-sub="input-emissions">
                 <i class="fas fa-cloud"></i> <span data-en="Input Emissions" data-pt="Emissões de Entrada">Input Emissions</span>

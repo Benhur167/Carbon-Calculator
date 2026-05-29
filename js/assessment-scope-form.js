@@ -100,6 +100,23 @@
         transport_materials: 'transportTable',
     };
 
+    /** Maps conversion-factor subgroups to assessment-scope unit storage keys. */
+    const SUBGROUP_UNIT_STORAGE_KEYS = {
+        electricity: 'electricityUnit',
+        gas_energy: 'gasUnit',
+        water: 'waterUnit',
+        wastewater: 'wasteWaterUnit',
+        waste: 'wasteUnit',
+        fleet: 'transportUnit',
+        business_travel: 'businessTravelUnit',
+        freight: 'businessTravelUnit',
+        refrigerants: 'refrigerantsUnit',
+        hotel_stay: 'hotelStayUnit',
+        wfh: 'wfhUnit',
+        materials: 'materialsUnit',
+        other_transport: 'businessTravelUnit',
+    };
+
     const SECTIONS = [
         {
             titleEn: 'Organisation Details',
@@ -531,6 +548,58 @@
         }
     }
 
+    function findUnitOptionsForStorageKey(storageKey) {
+        for (const section of SECTIONS) {
+            for (const row of section.rows) {
+                if (row.unitKey === storageKey && row.unitOptions) {
+                    return row.unitOptions;
+                }
+            }
+        }
+        return null;
+    }
+
+    function getUnitDisplayLabelsForStorageKey(storageKey) {
+        if (!storageKey) return null;
+        let value = '';
+        const sel = document.querySelector(
+            `.assessment-scope-unit[data-storage-key="${CSS.escape(storageKey)}"]`
+        );
+        if (sel) value = sel.value;
+        if (!value && typeof global.getOrgLocalItem === 'function') {
+            value = global.getOrgLocalItem(storageKey, '');
+        }
+        if (!value || value === 'none') return null;
+
+        if (sel) {
+            const opt = Array.from(sel.options).find((o) => o.value === value);
+            if (opt) {
+                return {
+                    en: opt.getAttribute('data-en') || opt.textContent || value,
+                    pt: opt.getAttribute('data-pt') || opt.textContent || value,
+                };
+            }
+        }
+
+        const match = findUnitOptionsForStorageKey(storageKey)?.find((o) => o.value === value);
+        if (match) {
+            return { en: match.labelEn, pt: match.labelPt };
+        }
+        return { en: value, pt: value };
+    }
+
+    function getSubgroupUnitDisplayLabels(subgroup) {
+        const storageKey = SUBGROUP_UNIT_STORAGE_KEYS[subgroup];
+        if (!storageKey) return null;
+        return getUnitDisplayLabelsForStorageKey(storageKey);
+    }
+
+    function refreshConversionFactorHeadings() {
+        if (global.carbonCalc?.rebuildConversionFactorCheckboxes) {
+            global.carbonCalc.rebuildConversionFactorCheckboxes();
+        }
+    }
+
     function applyCalculationUnitCascade(calcUnit, options) {
         const opts = options && typeof options === 'object' ? options : {};
         const outputUnit = calcUnit === 'kg_co2e' ? 'kgCO2e' : 'tCO2e';
@@ -546,6 +615,8 @@
         const ou = document.getElementById('outputUnitSelect');
         if (ou) ou.value = outputUnit;
 
+        refreshConversionFactorHeadings();
+
         // When syncing from toolbar setOutputUnit, skip calling back into carbonCalc.
         if (opts.skipCarbonCalc) return;
 
@@ -557,7 +628,7 @@
         }
     }
 
-    function resolvePreferredUnit(category, emissionKey) {
+    function resolveCategoryPreferredUnit(category, emissionKey) {
         const get = (key, fallback) =>
             typeof global.getOrgLocalItem === 'function'
                 ? global.getOrgLocalItem(key, fallback)
@@ -580,6 +651,41 @@
         const prefKey = keyMap[category];
         if (!prefKey) return '';
         return mapAssessmentUnitToRowUnit(category, get(prefKey, ''), emissionKey);
+    }
+
+    function resolvePreferredUnit(category, emissionKey) {
+        if (emissionKey && typeof global.getOrgLocalItem === 'function') {
+            const factorUnit = global.getOrgLocalItem(`factorUnit_${emissionKey}`, '');
+            if (factorUnit && factorUnit !== 'none') {
+                return mapAssessmentUnitToRowUnit(category, factorUnit, emissionKey);
+            }
+        }
+        return resolveCategoryPreferredUnit(category, emissionKey);
+    }
+
+    function syncFactorUnitSelectsFromCategoryUnit(categoryUnitKey, assessmentValue) {
+        if (!assessmentValue || assessmentValue === 'none') return;
+        Object.entries(SUBGROUP_UNIT_STORAGE_KEYS).forEach(([subgroup, storageKey]) => {
+            if (storageKey !== categoryUnitKey) return;
+            document.querySelectorAll('.conversion-factor-unit').forEach((sel) => {
+                const factorKey = sel.dataset.factorKey;
+                if (!factorKey) return;
+                if (global.carbonCalc?.inferFactorAssessmentSubgroup?.(factorKey) !== subgroup) return;
+                const storageKeyFactor = global.carbonCalc?.factorUnitStorageKey?.(factorKey);
+                if (
+                    storageKeyFactor &&
+                    typeof global.getOrgLocalItem === 'function' &&
+                    global.getOrgLocalItem(storageKeyFactor, '')
+                ) {
+                    return;
+                }
+                const category = global.carbonCalc?.inferFactorCategory?.(factorKey) || 'transport';
+                const rowUnit = mapAssessmentUnitToRowUnit(category, assessmentValue, factorKey);
+                if (rowUnit && Array.from(sel.options).some((o) => o.value === rowUnit)) {
+                    sel.value = rowUnit;
+                }
+            });
+        });
     }
 
     function getEnergyUnitOptions(emissionKey) {
@@ -698,6 +804,12 @@
             }
             if (control.dataset.unitSync) {
                 syncCategoryUnits(control.dataset.unitSync, val);
+            }
+            if (control.classList.contains('assessment-scope-unit')) {
+                if (key !== 'assessmentCalculationUnit') {
+                    syncFactorUnitSelectsFromCategoryUnit(key, val);
+                }
+                refreshConversionFactorHeadings();
             }
             recalcIfNeeded(control);
         };
@@ -903,11 +1015,14 @@
 
     global.AssessmentScopeUnits = {
         resolvePreferredUnit,
+        resolveCategoryPreferredUnit,
         getEnergyUnitOptions,
         isGasEmission,
         isElectricityEmission,
         mapAssessmentUnitToRowUnit,
         applyCalculationUnitCascade,
+        getSubgroupUnitDisplayLabels,
+        getUnitDisplayLabelsForStorageKey,
     };
 
     global.AssessmentScopeForm = {

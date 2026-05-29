@@ -548,9 +548,123 @@ function getCatalogEmissionOptions(category, year) {
     return options;
 }
 
+function factorUnitStorageKey(factorKey) {
+    return `factorUnit_${factorKey}`;
+}
+
+function getFactorUnitOptions(factorKey) {
+    const category = inferFactorCategory(factorKey);
+    if (category === 'energy' && window.AssessmentScopeUnits?.getEnergyUnitOptions) {
+        return window.AssessmentScopeUnits.getEnergyUnitOptions(factorKey);
+    }
+    const unitsByCategory = {
+        water: [['m3', 'm³'], ['litres', 'litres'], ['gallons', 'gallons'], ['ft3', 'ft³']],
+        energy: [['kwh', 'kWh'], ['mwh', 'MWh'], ['gj', 'GJ'], ['mj', 'MJ'], ['therms', 'therms']],
+        waste: [['tonnes', 'tonnes'], ['kg', 'kg'], ['lbs', 'lbs']],
+        transport: [
+            ['km', 'km'],
+            ['miles', 'miles'],
+            ['passenger_km', 'passenger-km'],
+            ['tonne_km', 'tonne-km'],
+            ['night', 'night'],
+            ['day', 'day'],
+        ],
+        refrigerants: [['kg', 'kg'], ['g', 'g'], ['lbs', 'lbs']],
+    };
+    return unitsByCategory[category] || [['unit', 'unit']];
+}
+
+function getDefaultFactorUnit(factorKey) {
+    const storageKey = factorUnitStorageKey(factorKey);
+    const stored = readOrgPref(storageKey, '');
+    if (stored && stored !== 'none') return stored;
+    const category = inferFactorCategory(factorKey);
+    if (window.AssessmentScopeUnits?.resolveCategoryPreferredUnit) {
+        const resolved = window.AssessmentScopeUnits.resolveCategoryPreferredUnit(category, factorKey);
+        if (resolved) return resolved;
+    }
+    const options = getFactorUnitOptions(factorKey);
+    return options[0]?.[0] || '';
+}
+
+function syncDataInputRowsForFactor(factorKey, unitValue) {
+    if (!factorKey || !unitValue || unitValue === 'none') return;
+    const category = inferFactorCategory(factorKey);
+    const table = document.getElementById(`${category}Table`);
+    if (!table) return;
+    table.querySelectorAll('tr.data-row').forEach((row) => {
+        const emissionSel = row.querySelector('.emission-select');
+        const unitEl = row.querySelector('.row-unit-select');
+        if (!emissionSel || !unitEl || emissionSel.value !== factorKey) return;
+        if (Array.from(unitEl.options).some((o) => o.value === unitValue)) {
+            unitEl.value = unitValue;
+            if (window.carbonCalc?.calculateRowTotal) {
+                window.carbonCalc.calculateRowTotal(row);
+            }
+        }
+    });
+    if (window.carbonCalc?.calculateCategoryTotal && table) {
+        window.carbonCalc.calculateCategoryTotal(table);
+    }
+    if (typeof window.saveCurrentSiteData === 'function') {
+        window.saveCurrentSiteData();
+    }
+}
+
+function bindConversionFactorUnitSelect(select) {
+    if (!select || select.dataset.cfUnitBound === '1') return;
+    select.dataset.cfUnitBound = '1';
+    select.addEventListener('change', () => {
+        const factorKey = select.dataset.factorKey;
+        const value = select.value || '';
+        const storageKey = factorUnitStorageKey(factorKey);
+        writeOrgPref(storageKey, value);
+        if (typeof window.setOrgLocalItem === 'function') {
+            window.setOrgLocalItem(storageKey, value);
+        }
+        syncDataInputRowsForFactor(factorKey, value);
+        if (window.carbonCalc?.calculateAllTotals) {
+            window.carbonCalc.calculateAllTotals();
+        }
+        if (typeof window.updateDashboard === 'function') {
+            window.updateDashboard();
+        }
+        if (typeof window.scheduleOrgPreferencesSave === 'function') {
+            window.scheduleOrgPreferencesSave();
+        }
+    });
+}
+
+function createConversionFactorUnitSelect(factorKey) {
+    const options = getFactorUnitOptions(factorKey);
+    const selected = getDefaultFactorUnit(factorKey);
+    const select = document.createElement('select');
+    select.className = 'conversion-factor-unit';
+    select.dataset.storageKey = factorUnitStorageKey(factorKey);
+    select.dataset.factorKey = factorKey;
+    options.forEach(([val, label]) => {
+        const o = document.createElement('option');
+        o.value = val;
+        o.textContent = label;
+        o.setAttribute('data-en', label);
+        o.setAttribute('data-pt', label);
+        select.appendChild(o);
+    });
+    if (selected && Array.from(select.options).some((o) => o.value === selected)) {
+        select.value = selected;
+    }
+    bindConversionFactorUnitSelect(select);
+    return select;
+}
+
 function rebuildConversionFactorCheckboxes() {
     const host = document.getElementById('conversion-factor-grid-host');
     if (!host) return;
+    const prevChecked = new Set(
+        Array.from(document.querySelectorAll('.conversion-factor-checkbox:checked')).map(
+            (cb) => cb.dataset.factorKey
+        )
+    );
     const year = getReportingYear();
     const bucket = resolveUiFactorBucket(year);
     const bySubgroup = {};
@@ -582,15 +696,24 @@ function rebuildConversionFactorCheckboxes() {
         h3.setAttribute('data-pt', titles.pt);
         group.appendChild(h3);
         items.forEach(({ key, label }) => {
+            const row = document.createElement('div');
+            row.className = 'conversion-factor-row';
+
             const labelEl = document.createElement('label');
+            labelEl.className = 'conversion-factor-label-wrap';
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.className = 'conversion-factor-checkbox';
             cb.dataset.factorKey = key;
-            cb.checked = true;
+            cb.checked = prevChecked.size === 0 || prevChecked.has(key);
+            const text = document.createElement('span');
+            text.className = 'conversion-factor-label';
+            text.textContent = label;
             labelEl.appendChild(cb);
-            labelEl.appendChild(document.createTextNode(` ${label}`));
-            group.appendChild(labelEl);
+            labelEl.appendChild(text);
+            row.appendChild(labelEl);
+            row.appendChild(createConversionFactorUnitSelect(key));
+            group.appendChild(row);
         });
         host.appendChild(group);
     });
@@ -1219,6 +1342,10 @@ window.carbonCalc = {
     getCatalogEmissionOptions,
     rebuildConversionFactorCheckboxes,
     getFactorDisplayLabel,
+    factorUnitStorageKey,
+    getFactorUnitOptions,
+    getDefaultFactorUnit,
+    syncDataInputRowsForFactor,
     inferFactorCategory,
     inferFactorAssessmentSubgroup,
     getConversionFactors: function () {
