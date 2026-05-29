@@ -1481,8 +1481,19 @@ function getUnitSelectHtml(category, selectedUnit, emissionKey) {
         };
         options = unitsByCategory[unitCategory] || [['unit', 'unit']];
     }
-    const normalized = selectedUnit || getPreferredUnitForCategory(category, emissionKey) || options[0][0];
-    if (normalized && !options.some(([val]) => val === normalized)) {
+    const isWaterTab = category === 'water';
+    let normalized =
+        selectedUnit || getPreferredUnitForCategory(category, emissionKey) || options[0][0];
+    if (isWaterTab && window.AssessmentScopeUnits?.normalizeWaterRowUnit) {
+        normalized = window.AssessmentScopeUnits.normalizeWaterRowUnit(normalized);
+        options = options.filter(([val]) => val === 'm3' || val === 'million_litres');
+        if (options.length === 0) {
+            options = [
+                ['m3', 'm³'],
+                ['million_litres', 'Million litres'],
+            ];
+        }
+    } else if (normalized && !options.some(([val]) => val === normalized)) {
         options = [[normalized, normalized], ...options];
     }
     let html = `<select class="row-unit-select" data-category="${category}">`;
@@ -1911,7 +1922,13 @@ function loadRowData(row, data) {
     const category = row.closest('table')?.id?.replace(/Table$/, '');
     const emissionKey = emissionSelect?.value || data.emissionType || null;
     if (category && emissionKey && row.cells?.[2]) {
-        const preferred = data.unit || getPreferredUnitForCategory(category, emissionKey);
+        let preferred = data.unit || getPreferredUnitForCategory(category, emissionKey);
+        if (
+            category === 'water' &&
+            window.AssessmentScopeUnits?.normalizeWaterRowUnit
+        ) {
+            preferred = window.AssessmentScopeUnits.normalizeWaterRowUnit(preferred);
+        }
         replaceRowUnitSelect(row, category, preferred, emissionKey);
         if (data.unit) {
             row.dataset.unitUserSet = '1';

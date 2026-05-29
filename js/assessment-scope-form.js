@@ -614,6 +614,19 @@
         return getUnitDisplayLabelsForStorageKey(storageKey);
     }
 
+    function getConversionFactorGroupHeading(subgroup, titles) {
+        const baseEn = titles?.en || subgroup;
+        const basePt = titles?.pt || subgroup;
+        const unitLabels = getSubgroupUnitDisplayLabels(subgroup);
+        if (!unitLabels) {
+            return { en: baseEn, pt: basePt };
+        }
+        return {
+            en: `${baseEn} (${unitLabels.en})`,
+            pt: `${basePt} (${unitLabels.pt})`,
+        };
+    }
+
     function refreshConversionFactorHeadings() {
         if (global.carbonCalc?.rebuildConversionFactorCheckboxes) {
             global.carbonCalc.rebuildConversionFactorCheckboxes();
@@ -805,6 +818,20 @@
         wfh_day: [['day', 'day']],
     };
 
+    const WATER_DATA_INPUT_UNITS = [
+        ['m3', 'm³'],
+        ['million_litres', 'Million litres'],
+    ];
+    const WATER_ROW_UNIT_VALUES = new Set(['m3', 'million_litres']);
+
+    function isWaterQuantityContext(unitCategory, group) {
+        return unitCategory === 'water' || group === 'water' || group === 'wastewater';
+    }
+
+    function normalizeWaterRowUnit(unit) {
+        return WATER_ROW_UNIT_VALUES.has(unit) ? unit : 'm3';
+    }
+
     function getDataInputUnitOptions(dataCategory, emissionKey) {
         const unitCategory =
             typeof global.resolveUnitCategoryForDataTab === 'function'
@@ -815,6 +842,9 @@
             subgroup = global.carbonCalc.inferFactorAssessmentSubgroup(emissionKey);
         }
         const group = resolveQuantityGroupForFactor(emissionKey, subgroup);
+        if (isWaterQuantityContext(unitCategory, group) || dataCategory === 'water') {
+            return WATER_DATA_INPUT_UNITS.map(([val, labelEn]) => [val, labelEn]);
+        }
         const assessmentOpts = getAssessmentQuantityUnitOptions(group).filter(
             (opt) => opt.value !== 'none'
         );
@@ -943,6 +973,7 @@
             }
             if (control.classList.contains('assessment-scope-unit') && key !== 'assessmentCalculationUnit') {
                 syncFactorUnitSelectsFromCategoryUnit(key, val);
+                refreshConversionFactorHeadings();
             }
             recalcIfNeeded(control);
         };
@@ -979,7 +1010,7 @@
 
     function mapAssessmentUnitToRowUnit(category, value, emissionKey) {
         const map = {
-            water: { m3: 'm3', million_litres: 'million_litres', litres: 'litres', gallons: 'gallons', ft3: 'ft3' },
+            water: { m3: 'm3', million_litres: 'million_litres' },
             energy: {
                 kwh: 'kwh',
                 litres: 'litres',
@@ -1003,6 +1034,9 @@
             refrigerants: { kg: 'kg', g: 'g', lbs: 'lbs' },
         };
         const base = (map[category] && map[category][value]) || value;
+        if (category === 'water') {
+            return normalizeWaterRowUnit(base);
+        }
         if (category === 'energy' && emissionKey && isGasEmission(emissionKey)) {
             if (['litres', 'tonnes', 'kwh'].includes(value)) return value;
         }
@@ -1168,8 +1202,12 @@
         isGasEmission,
         isElectricityEmission,
         mapAssessmentUnitToRowUnit,
+        normalizeWaterRowUnit,
+        isWaterQuantityContext,
         applyCalculationUnitCascade,
         getSubgroupUnitDisplayLabels,
+        getConversionFactorGroupHeading,
+        refreshConversionFactorHeadings,
         getUnitDisplayLabelsForStorageKey,
     };
 
