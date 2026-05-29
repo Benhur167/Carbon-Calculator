@@ -1397,7 +1397,8 @@ function addDataRow(category) {
     const emissionSel = row.querySelector('.emission-select');
     const emissionKey = emissionSel?.value || null;
     if (emissionKey && row.cells[2]) {
-        row.cells[2].innerHTML = getUnitSelectHtml(
+        replaceRowUnitSelect(
+            row,
             category,
             getPreferredUnitForCategory(category, emissionKey),
             emissionKey
@@ -1440,14 +1441,14 @@ function filterEmissionOptionsForCategory(options, category) {
 }
 
 function getUnitSelectHtml(category, selectedUnit, emissionKey) {
-    const unitCategory =
-        typeof window.resolveUnitCategoryForDataTab === 'function'
-            ? window.resolveUnitCategoryForDataTab(category)
-            : category;
     let options;
-    if (unitCategory === 'energy' && emissionKey && window.AssessmentScopeUnits?.getEnergyUnitOptions) {
-        options = window.AssessmentScopeUnits.getEnergyUnitOptions(emissionKey);
+    if (window.AssessmentScopeUnits?.getDataInputUnitOptions) {
+        options = window.AssessmentScopeUnits.getDataInputUnitOptions(category, emissionKey);
     } else {
+        const unitCategory =
+            typeof window.resolveUnitCategoryForDataTab === 'function'
+                ? window.resolveUnitCategoryForDataTab(category)
+                : category;
         const unitsByCategory = {
             water: [['m3', 'm³'], ['litres', 'litres'], ['gallons', 'gallons'], ['ft3', 'ft³']],
             energy: [['kwh', 'kWh'], ['mwh', 'MWh'], ['gj', 'GJ'], ['mj', 'MJ'], ['therms', 'therms']],
@@ -1457,13 +1458,46 @@ function getUnitSelectHtml(category, selectedUnit, emissionKey) {
         };
         options = unitsByCategory[unitCategory] || [['unit', 'unit']];
     }
-    const normalized = selectedUnit || CATEGORY_DEFAULT_UNITS[category] || options[0][0];
+    const normalized = selectedUnit || getPreferredUnitForCategory(category, emissionKey) || options[0][0];
+    if (normalized && !options.some(([val]) => val === normalized)) {
+        options = [[normalized, normalized], ...options];
+    }
     let html = `<select class="row-unit-select" data-category="${category}">`;
     options.forEach(([val, label]) => {
         html += `<option value="${val}" ${val === normalized ? 'selected' : ''}>${label}</option>`;
     });
     html += '</select>';
     return html;
+}
+
+function replaceRowUnitSelect(row, category, selectedUnit, emissionKey) {
+    const unitCell = row.cells?.[2];
+    if (!unitCell) return null;
+    unitCell.innerHTML = getUnitSelectHtml(category, selectedUnit, emissionKey);
+    const unitSelect = row.querySelector('.row-unit-select');
+    bindRowUnitSelect(row, unitSelect);
+    return unitSelect;
+}
+
+function bindRowUnitSelect(row, unitSelect) {
+    if (!unitSelect || unitSelect.dataset.unitBound === '1') return;
+    unitSelect.dataset.unitBound = '1';
+    unitSelect.addEventListener('change', () => {
+        row.dataset.unitUserSet = '1';
+        if (window.carbonCalc?.calculateRowTotal) {
+            window.carbonCalc.calculateRowTotal(row);
+            if (window.carbonCalc.calculateCategoryTotal) {
+                window.carbonCalc.calculateCategoryTotal(row.closest('table'));
+            }
+        } else {
+            calculateRowTotal(row);
+            calculateCategoryTotal(row.closest('table'));
+        }
+        saveCurrentSiteData();
+        if (typeof updateInputEmissionsPreview === 'function') {
+            updateInputEmissionsPreview();
+        }
+    });
 }
 
 // Build emission type dropdown HTML per category (options from conversion_factor_catalog via carbonCalc)
@@ -1674,26 +1708,21 @@ function attachRowListeners(row) {
         emissionSelect.addEventListener('change', () => {
             const table = row.closest('table');
             const category = table?.id?.replace(/Table$/, '') || emissionSelect.dataset.category;
-            if (unitSelect && category) {
+            if (category) {
                 const emissionKey = emissionSelect.value;
+                const currentUnit = row.querySelector('.row-unit-select')?.value || '';
                 const preferred = getPreferredUnitForCategory(category, emissionKey);
-                const unitCell = unitSelect.parentElement;
-                if (unitCell) {
-                    unitCell.innerHTML = getUnitSelectHtml(category, preferred, emissionKey);
-                    const newUnitSelect = row.querySelector('.row-unit-select');
-                    if (newUnitSelect) {
-                        newUnitSelect.addEventListener('change', () => saveData());
-                    }
-                }
+                const optionValues = window.AssessmentScopeUnits?.getDataInputUnitOptions
+                    ? window.AssessmentScopeUnits.getDataInputUnitOptions(category, emissionKey).map(([val]) => val)
+                    : [];
+                const nextUnit =
+                    currentUnit && optionValues.includes(currentUnit) ? currentUnit : preferred;
+                replaceRowUnitSelect(row, category, nextUnit, emissionKey);
             }
             saveData();
         });
     }
-    if (unitSelect) {
-        unitSelect.addEventListener('change', () => {
-            saveData();
-        });
-    }
+    bindRowUnitSelect(row, unitSelect);
     
     if (yearInput) {
         yearInput.addEventListener('change', function() {
@@ -1845,7 +1874,6 @@ function loadSiteData(siteId) {
 function loadRowData(row, data) {
     const inputs = row.querySelectorAll('input');
     const emissionSelect = row.querySelector('.emission-select');
-    const unitSelect = row.querySelector('.row-unit-select');
 
     // Inputs: [description, year, months...]
     if (inputs[0]) inputs[0].value = data.description || '';
@@ -1856,25 +1884,18 @@ function loadRowData(row, data) {
     }
     const category = row.closest('table')?.id?.replace(/Table$/, '');
     const emissionKey = emissionSelect?.value || data.emissionType || null;
-    if (unitSelect && emissionKey && category) {
-        const preferred = getPreferredUnitForCategory(category, emissionKey);
-        const factorUnitKey = `factorUnit_${emissionKey}`;
-        const explicitFactorUnit =
-            typeof getOrgLocalItem === 'function' ? getOrgLocalItem(factorUnitKey, '') : '';
-        if (
-            explicitFactorUnit &&
-            explicitFactorUnit !== 'none' &&
-            preferred &&
-            Array.from(unitSelect.options).some((o) => o.value === preferred)
-        ) {
-            unitSelect.value = preferred;
-        } else if (data.unit && Array.from(unitSelect.options).some((o) => o.value === data.unit)) {
-            unitSelect.value = data.unit;
-        } else if (preferred && Array.from(unitSelect.options).some((o) => o.value === preferred)) {
-            unitSelect.value = preferred;
+    if (category && emissionKey && row.cells?.[2]) {
+        const preferred = data.unit || getPreferredUnitForCategory(category, emissionKey);
+        replaceRowUnitSelect(row, category, preferred, emissionKey);
+        if (data.unit) {
+            row.dataset.unitUserSet = '1';
         }
-    } else if (unitSelect && data.unit) {
-        unitSelect.value = data.unit;
+    } else if (data.unit) {
+        const unitSelect = row.querySelector('.row-unit-select');
+        if (unitSelect) {
+            unitSelect.value = data.unit;
+            row.dataset.unitUserSet = '1';
+        }
     }
     
     (data.months || []).forEach((value, index) => {

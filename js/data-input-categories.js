@@ -91,6 +91,29 @@
     function dataCategoryForEmissionKey(emissionKey) {
         const k = String(emissionKey || '');
         if (!k) return 'transport';
+
+        if (global.carbonCalc?.inferFactorCategory) {
+            const baseCategory = global.carbonCalc.inferFactorCategory(k);
+            if (['water', 'energy', 'waste', 'refrigerants'].includes(baseCategory)) {
+                return baseCategory;
+            }
+        } else {
+            if (['water', 'wastewater', 'water_reuse', 'water_supply', 'water_treatment'].includes(k)) {
+                return 'water';
+            }
+            if (
+                ['electricity', 'naturalGas', 'diesel', 'lpg', 'coal', 'electricity_grid', 'natural_gas', 'heating_oil'].includes(k)
+            ) {
+                return 'energy';
+            }
+            if (k.startsWith('waste') || ['wasteRecycled', 'waste_composted'].includes(k)) {
+                return 'waste';
+            }
+            if (k.startsWith('refrigerant_')) {
+                return 'refrigerants';
+            }
+        }
+
         if (k.startsWith('staff_commute')) return 'staffCommute';
         if (k.startsWith('freight_') || k.startsWith('cargo_ship_') || k === 'rail_freight_train') {
             return 'freight';

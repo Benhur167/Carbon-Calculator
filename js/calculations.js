@@ -553,38 +553,23 @@ function factorUnitStorageKey(factorKey) {
 }
 
 function getFactorUnitOptions(factorKey) {
-    const category = inferFactorCategory(factorKey);
-    if (category === 'energy' && window.AssessmentScopeUnits?.getEnergyUnitOptions) {
-        return window.AssessmentScopeUnits.getEnergyUnitOptions(factorKey);
+    if (window.AssessmentScopeUnits?.getAssessmentQuantityUnitPairs) {
+        const subgroup = inferFactorAssessmentSubgroup(factorKey);
+        return window.AssessmentScopeUnits.getAssessmentQuantityUnitPairs(subgroup, factorKey);
     }
-    const unitsByCategory = {
-        water: [['m3', 'm³'], ['litres', 'litres'], ['gallons', 'gallons'], ['ft3', 'ft³']],
-        energy: [['kwh', 'kWh'], ['mwh', 'MWh'], ['gj', 'GJ'], ['mj', 'MJ'], ['therms', 'therms']],
-        waste: [['tonnes', 'tonnes'], ['kg', 'kg'], ['lbs', 'lbs']],
-        transport: [
-            ['km', 'km'],
-            ['miles', 'miles'],
-            ['passenger_km', 'passenger-km'],
-            ['tonne_km', 'tonne-km'],
-            ['night', 'night'],
-            ['day', 'day'],
-        ],
-        refrigerants: [['kg', 'kg'], ['g', 'g'], ['lbs', 'lbs']],
-    };
-    return unitsByCategory[category] || [['unit', 'unit']];
+    return [['kwh', 'kWh', 'kWh'], ['none', 'No option', 'Sem opção']];
 }
 
 function getDefaultFactorUnit(factorKey) {
     const storageKey = factorUnitStorageKey(factorKey);
     const stored = readOrgPref(storageKey, '');
     if (stored && stored !== 'none') return stored;
-    const category = inferFactorCategory(factorKey);
-    if (window.AssessmentScopeUnits?.resolveCategoryPreferredUnit) {
-        const resolved = window.AssessmentScopeUnits.resolveCategoryPreferredUnit(category, factorKey);
-        if (resolved) return resolved;
+    const subgroup = inferFactorAssessmentSubgroup(factorKey);
+    if (window.AssessmentScopeUnits?.getDefaultAssessmentQuantityUnit) {
+        return window.AssessmentScopeUnits.getDefaultAssessmentQuantityUnit(subgroup, factorKey);
     }
     const options = getFactorUnitOptions(factorKey);
-    return options[0]?.[0] || '';
+    return options.find(([val]) => val !== 'none')?.[0] || options[0]?.[0] || '';
 }
 
 function syncDataInputRowsForFactor(factorKey, unitValue) {
@@ -594,14 +579,20 @@ function syncDataInputRowsForFactor(factorKey, unitValue) {
             ? window.dataCategoryForEmissionKey(factorKey)
             : 'transport';
     const unitCategory = resolveUnitCategory(dataCategory);
+    const rowUnit =
+        window.AssessmentScopeUnits?.mapAssessmentUnitToRowUnit
+            ? window.AssessmentScopeUnits.mapAssessmentUnitToRowUnit(unitCategory, unitValue, factorKey)
+            : unitValue;
+    if (!rowUnit || rowUnit === 'none') return;
     const table = document.getElementById(`${dataCategory}Table`);
     if (!table) return;
     table.querySelectorAll('tr.data-row').forEach((row) => {
+        if (row.dataset.unitUserSet === '1') return;
         const emissionSel = row.querySelector('.emission-select');
         const unitEl = row.querySelector('.row-unit-select');
         if (!emissionSel || !unitEl || emissionSel.value !== factorKey) return;
-        if (Array.from(unitEl.options).some((o) => o.value === unitValue)) {
-            unitEl.value = unitValue;
+        if (Array.from(unitEl.options).some((o) => o.value === rowUnit)) {
+            unitEl.value = rowUnit;
             if (window.carbonCalc?.calculateRowTotal) {
                 window.carbonCalc.calculateRowTotal(row);
             }
@@ -646,12 +637,12 @@ function createConversionFactorUnitSelect(factorKey) {
     select.className = 'conversion-factor-unit';
     select.dataset.storageKey = factorUnitStorageKey(factorKey);
     select.dataset.factorKey = factorKey;
-    options.forEach(([val, label]) => {
+    options.forEach(([val, labelEn, labelPt]) => {
         const o = document.createElement('option');
         o.value = val;
-        o.textContent = label;
-        o.setAttribute('data-en', label);
-        o.setAttribute('data-pt', label);
+        o.textContent = labelEn;
+        o.setAttribute('data-en', labelEn);
+        o.setAttribute('data-pt', labelPt || labelEn);
         select.appendChild(o);
     });
     if (selected && Array.from(select.options).some((o) => o.value === selected)) {

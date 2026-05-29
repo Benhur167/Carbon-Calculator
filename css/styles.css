@@ -1071,6 +1071,28 @@ body {
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
+    table-layout: auto;
+}
+
+/* Keep dropdown columns wide enough to use across all data-input tabs */
+.data-table th:nth-child(1),
+.data-table td:nth-child(1) {
+    min-width: 200px;
+}
+
+.data-table th:nth-child(2),
+.data-table td:nth-child(2) {
+    min-width: 150px;
+}
+
+.data-table th:nth-child(3),
+.data-table td:nth-child(3) {
+    min-width: 100px;
+}
+
+.data-table th:nth-child(4),
+.data-table td:nth-child(4) {
+    min-width: 72px;
 }
 
 .data-table thead {
@@ -1096,8 +1118,9 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 
-.data-table input {
-    width: 100%;
+.data-table input,
+.data-table select {
+    box-sizing: border-box;
     padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
@@ -1105,6 +1128,26 @@ body {
     background: var(--bg-card);
     color: var(--text-primary);
     transition: var(--transition);
+}
+
+.data-table input {
+    width: 100%;
+}
+
+.data-table select.emission-select {
+    width: 100%;
+    min-width: 180px;
+    max-width: 280px;
+    cursor: pointer;
+    appearance: auto;
+}
+
+.data-table select.row-unit-select {
+    width: 100%;
+    min-width: 88px;
+    max-width: 130px;
+    cursor: pointer;
+    appearance: auto;
 }
 
 .data-table input[type="text"] {
@@ -1117,7 +1160,8 @@ body {
     color: var(--primary-color);
 }
 
-.data-table input:focus {
+.data-table input:focus,
+.data-table select:focus {
     outline: none;
     border-color: var(--primary-color);
     background: var(--bg-main);

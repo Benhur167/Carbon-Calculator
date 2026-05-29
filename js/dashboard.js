@@ -101,6 +101,21 @@ function convertTonnesToDisplayValue(tonnes) {
     return window.carbonCalc?.getOutputUnit?.() === 'kgCO2e' ? t * 1000 : t;
 }
 
+function formatEmissionsForDisplay(tonnes, decimals = 3) {
+    if (window.carbonCalc?.formatTonnesForDisplay) {
+        return window.carbonCalc.formatTonnesForDisplay(tonnes, decimals);
+    }
+    const t = Number(tonnes || 0);
+    return `${t.toFixed(decimals)} tCO₂e`;
+}
+
+function setKpiValue(elementId, tonnes) {
+    const text = formatEmissionsForDisplay(tonnes);
+    document.querySelectorAll(`[id="${elementId}"]`).forEach((el) => {
+        el.textContent = text;
+    });
+}
+
 // Generate colors for year bars dynamically
 function generateYearColors(count) {
     const ct = _chartTheme();
@@ -176,58 +191,35 @@ function updateKPIs() {
         : (lastYearValue > 0 ? lastYearValue / 12 : 0);
     
     // Update KPI elements
-    const totalEmissionsEl = document.getElementById('totalEmissions');
-    if (totalEmissionsEl) {
-        totalEmissionsEl.textContent = window.carbonCalc?.formatTonnesForDisplay
-            ? window.carbonCalc.formatTonnesForDisplay(grandTotal)
-            : `${grandTotal.toFixed(3)} tCO₂e`;
-    }
-    
-    // Update Scope breakdown KPIs
-    const scope1El = document.getElementById('scope1Emissions');
-    if (scope1El) {
-        scope1El.textContent = window.carbonCalc?.formatTonnesForDisplay(scopeBreakdown.scope1) || `${scopeBreakdown.scope1.toFixed(3)} tCO₂e`;
-    }
-    
-    const scope2El = document.getElementById('scope2Emissions');
-    if (scope2El) {
-        scope2El.textContent = window.carbonCalc?.formatTonnesForDisplay(scopeBreakdown.scope2) || `${scopeBreakdown.scope2.toFixed(3)} tCO₂e`;
-    }
-    
-    const scope3El = document.getElementById('scope3Emissions');
-    if (scope3El) {
-        scope3El.textContent = window.carbonCalc?.formatTonnesForDisplay(scopeBreakdown.scope3) || `${scopeBreakdown.scope3.toFixed(3)} tCO₂e`;
-    }
-    
-    const currentYearEmissionsEl = document.getElementById('currentYearEmissions');
-    if (currentYearEmissionsEl) {
-        currentYearEmissionsEl.textContent = window.carbonCalc?.formatTonnesForDisplay(lastYearValue) || `${lastYearValue.toFixed(3)} tCO₂e`;
-    }
-    
+    setKpiValue('totalEmissions', grandTotal);
+
+    setKpiValue('scope1Emissions', scopeBreakdown.scope1);
+    setKpiValue('scope2Emissions', scopeBreakdown.scope2);
+    setKpiValue('scope3Emissions', scopeBreakdown.scope3);
+
+    setKpiValue('currentYearEmissions', lastYearValue);
+
     // Update last year display with dynamic year
-    const lastYearElement = document.getElementById('lastYearEmissions');
-    if (lastYearElement) {
+    const lastYearElements = document.querySelectorAll('#lastYearEmissions');
+    if (lastYearElements.length) {
+        const lastYearText = formatEmissionsForDisplay(
+            previousYear && yearComparison[previousYear] !== undefined ? previousYearValue : 0
+        );
+        lastYearElements.forEach((el) => {
+            el.textContent = lastYearText;
+        });
         if (previousYear && yearComparison[previousYear] !== undefined) {
-            lastYearElement.textContent = window.carbonCalc?.formatTonnesForDisplay
-                ? window.carbonCalc.formatTonnesForDisplay(previousYearValue)
-                : `${previousYearValue.toFixed(3)} tCO₂e`;
-            // Update label if exists
-            const lastYearLabel = lastYearElement.parentElement.querySelector('h3');
-            if (lastYearLabel) {
-                const labelText = lastYearLabel.textContent || lastYearLabel.innerHTML;
-                lastYearLabel.innerHTML = labelText.replace(/\d{4}/, previousYear) || `Last Year (${previousYear})`;
-            }
-        } else {
-            lastYearElement.textContent = window.carbonCalc?.formatTonnesForDisplay
-                ? window.carbonCalc.formatTonnesForDisplay(0)
-                : '0.000 tCO₂e';
+            lastYearElements.forEach((el) => {
+                const lastYearLabel = el.parentElement?.querySelector('h3');
+                if (lastYearLabel) {
+                    const labelText = lastYearLabel.textContent || lastYearLabel.innerHTML;
+                    lastYearLabel.innerHTML = labelText.replace(/\d{4}/, previousYear) || `Last Year (${previousYear})`;
+                }
+            });
         }
     }
-    
-    const avgMonthEl = document.getElementById('avgMonthEmissions');
-    if (avgMonthEl) {
-        avgMonthEl.textContent = window.carbonCalc?.formatTonnesForDisplay(avgMonth) || `${avgMonth.toFixed(3)} tCO₂e`;
-    }
+
+    setKpiValue('avgMonthEmissions', avgMonth);
 
     const calcContext = document.getElementById('dashboardCalcContext');
     if (calcContext && window.carbonCalc?.getReportingYear && window.carbonCalc?.getOutputUnitDisplayLabel) {
