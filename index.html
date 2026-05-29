@@ -886,8 +886,8 @@
                             <h2 data-en="Emissions Dashboard" data-pt="Painel de Emissões">Emissions Dashboard</h2>
                             <div id="dashboardCalcContext" style="font-size: 0.85rem; color: var(--text-secondary); margin-right: 10px;"></div>
                             <div class="export-actions">
-                                <button class="btn-secondary" onclick="openChartStyleModal()">
-                                    <i class="fas fa-paint-brush"></i> <span data-en="Chart Style" data-pt="Estilo do gráfico">Chart Style</span>
+                                <button class="btn-secondary" onclick="openChartStyleModal()" title="Default font and colors for all charts">
+                                    <i class="fas fa-paint-brush"></i> <span data-en="Default Chart Styles" data-pt="Estilos padrão dos gráficos">Default Chart Styles</span>
                                 </button>
                                 <button class="btn-secondary" onclick="toggleDashboardWidgets()">
                                     <i class="fas fa-cog"></i> <span data-en="Customize" data-pt="Personalizar">Customize</span>
@@ -968,25 +968,46 @@
                         <!-- Charts -->
                         <div class="charts-grid">
                             <div class="chart-card widget-card" data-widget="pie-chart">
-                                <h3 data-en="Emissions by Category" data-pt="Emissões por Categoria">Emissions by Category</h3>
+                                <div class="chart-header">
+                                    <h3 data-en="Emissions by Category" data-pt="Emissões por Categoria">Emissions by Category</h3>
+                                    <button type="button" class="chart-style-btn" onclick="openChartStyleModal('pieChart')" title="Customize chart colors and font">
+                                        <i class="fas fa-palette"></i>
+                                    </button>
+                                </div>
                                 <canvas id="pieChart"></canvas>
                                 <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>
                             </div>
                             <div class="chart-card widget-card" data-widget="bar-chart">
-                                <h3 data-en="Year-over-Year Comparison" data-pt="Comparação Ano a Ano">Year-over-Year Comparison</h3>
+                                <div class="chart-header">
+                                    <h3 data-en="Year-over-Year Comparison" data-pt="Comparação Ano a Ano">Year-over-Year Comparison</h3>
+                                    <button type="button" class="chart-style-btn" onclick="openChartStyleModal('barChart')" title="Customize chart colors and font">
+                                        <i class="fas fa-palette"></i>
+                                    </button>
+                                </div>
                                 <canvas id="barChart"></canvas>
                                 <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>
                             </div>
                             <div class="chart-card full-width widget-card" data-widget="line-chart">
-                                <h3 data-en="Monthly Emissions Trend" data-pt="Tendência Mensal de Emissões">Monthly Emissions Trend</h3>
+                                <div class="chart-header">
+                                    <h3 data-en="Monthly Emissions Trend (Total)" data-pt="Tendência Mensal de Emissões (Total)">Monthly Emissions Trend (Total)</h3>
+                                    <button type="button" class="chart-style-btn" onclick="openChartStyleModal('lineChart')" title="Customize chart colors and font">
+                                        <i class="fas fa-palette"></i>
+                                    </button>
+                                </div>
                                 <canvas id="lineChart"></canvas>
                                 <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>
                             </div>
                             <div class="chart-card full-width widget-card" data-widget="source-trend-chart">
-                                <h3 data-en="Monthly Trend by Source Category" data-pt="Tendência mensal por categoria">Monthly Trend by Source Category</h3>
+                                <div class="chart-header">
+                                    <h3 data-en="Monthly Trend by Source (All)" data-pt="Tendência mensal por fonte (todas)">Monthly Trend by Source (All)</h3>
+                                    <button type="button" class="chart-style-btn" onclick="openChartStyleModal('sourceTrendChart')" title="Customize chart colors and font">
+                                        <i class="fas fa-palette"></i>
+                                    </button>
+                                </div>
                                 <canvas id="sourceTrendChart"></canvas>
                                 <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>
                             </div>
+                            <div id="sourceTrendChartsGrid" class="source-trend-charts-grid charts-grid-full"></div>
                             <div class="chart-card widget-card" data-widget="watchlist" style="display: none;">
                                 <h3 data-en="Account Watchlist" data-pt="Contas Monitoradas">Account Watchlist</h3>
                                 <div class="watchlist-content">

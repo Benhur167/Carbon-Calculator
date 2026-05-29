@@ -702,31 +702,120 @@
         return resolveCategoryPreferredUnit(category, emissionKey);
     }
 
+    function syncConversionFactorUnitsForSubgroup(subgroup, assessmentValue, options) {
+        const opts = options && typeof options === 'object' ? options : {};
+        if (!subgroup || !assessmentValue || assessmentValue === 'none') return;
+
+        const storageKey = SUBGROUP_UNIT_STORAGE_KEYS[subgroup];
+
+        document.querySelectorAll('.conversion-factor-unit').forEach((sel) => {
+            const factorKey = sel.dataset.factorKey;
+            if (!factorKey) return;
+            if (global.carbonCalc?.inferFactorAssessmentSubgroup?.(factorKey) !== subgroup) return;
+            if (!Array.from(sel.options).some((o) => o.value === assessmentValue)) return;
+
+            sel.value = assessmentValue;
+            const factorStorage = global.carbonCalc?.factorUnitStorageKey?.(factorKey);
+            if (factorStorage && typeof global.setOrgLocalItem === 'function') {
+                global.setOrgLocalItem(factorStorage, assessmentValue);
+            }
+            if (global.carbonCalc?.syncDataInputRowsForFactor) {
+                global.carbonCalc.syncDataInputRowsForFactor(factorKey, assessmentValue);
+            }
+        });
+
+        if (!opts.skipAssessmentForm && storageKey) {
+            setUnitSelectValue(storageKey, assessmentValue);
+            mirrorLinkedUnit(storageKey, assessmentValue);
+            const scopeSel = document.querySelector(
+                `.assessment-scope-unit[data-storage-key="${CSS.escape(storageKey)}"]`
+            );
+            if (scopeSel?.dataset.unitSync) {
+                syncCategoryUnits(scopeSel.dataset.unitSync, assessmentValue);
+            }
+        }
+
+        if (!opts.skipHeadingRefresh) {
+            refreshConversionFactorHeadings();
+        }
+        if (!opts.skipRecalc) {
+            if (global.carbonCalc?.calculateAllTotals) global.carbonCalc.calculateAllTotals();
+            if (typeof global.updateDashboard === 'function') global.updateDashboard();
+        }
+        if (!opts.skipSave && typeof global.scheduleOrgPreferencesSave === 'function') {
+            global.scheduleOrgPreferencesSave();
+        }
+    }
+
     function syncFactorUnitSelectsFromCategoryUnit(categoryUnitKey, assessmentValue) {
         if (!assessmentValue || assessmentValue === 'none') return;
         Object.entries(SUBGROUP_UNIT_STORAGE_KEYS).forEach(([subgroup, storageKey]) => {
             if (storageKey !== categoryUnitKey) return;
-            document.querySelectorAll('.conversion-factor-unit').forEach((sel) => {
-                const factorKey = sel.dataset.factorKey;
-                if (!factorKey) return;
-                if (global.carbonCalc?.inferFactorAssessmentSubgroup?.(factorKey) !== subgroup) return;
-                const storageKeyFactor = global.carbonCalc?.factorUnitStorageKey?.(factorKey);
-                if (
-                    storageKeyFactor &&
-                    typeof global.getOrgLocalItem === 'function' &&
-                    global.getOrgLocalItem(storageKeyFactor, '')
-                ) {
-                    return;
-                }
-                const category = global.carbonCalc?.inferFactorCategory?.(factorKey) || 'transport';
-                if (
-                    assessmentValue &&
-                    Array.from(sel.options).some((o) => o.value === assessmentValue)
-                ) {
-                    sel.value = assessmentValue;
-                }
+            syncConversionFactorUnitsForSubgroup(subgroup, assessmentValue, {
+                skipAssessmentForm: true,
+                skipHeadingRefresh: true,
+                skipRecalc: true,
+                skipSave: true,
             });
         });
+        refreshConversionFactorHeadings();
+        if (global.carbonCalc?.calculateAllTotals) global.carbonCalc.calculateAllTotals();
+        if (typeof global.updateDashboard === 'function') global.updateDashboard();
+        if (typeof global.scheduleOrgPreferencesSave === 'function') {
+            global.scheduleOrgPreferencesSave();
+        }
+    }
+
+    function createConversionFactorGroupUnitSelect(subgroup) {
+        const storageKey = SUBGROUP_UNIT_STORAGE_KEYS[subgroup];
+        const unitOptions = getAssessmentQuantityUnitOptions(subgroup);
+        const select = document.createElement('select');
+        select.className = 'conversion-factor-group-unit assessment-scope-unit';
+        select.dataset.subgroup = subgroup;
+        if (storageKey) select.dataset.storageKey = storageKey;
+
+        unitOptions.forEach((opt) => {
+            const o = document.createElement('option');
+            o.value = opt.value;
+            o.textContent = opt.labelEn;
+            o.setAttribute('data-en', opt.labelEn);
+            o.setAttribute('data-pt', opt.labelPt);
+            select.appendChild(o);
+        });
+
+        const fallback = unitOptions.find((o) => o.value !== 'none')?.value || unitOptions[0]?.value || '';
+        let stored = fallback;
+        if (storageKey && typeof global.getOrgLocalItem === 'function') {
+            const scoped = global.getOrgLocalItem(storageKey, '');
+            if (scoped && scoped !== 'none' && unitOptions.some((o) => o.value === scoped)) {
+                stored = scoped;
+            }
+        }
+        select.value = stored;
+
+        if (select.dataset.cfGroupUnitBound === '1') return select;
+        select.dataset.cfGroupUnitBound = '1';
+        select.addEventListener('change', () => {
+            const val = select.value;
+            if (storageKey) {
+                setUnitSelectValue(storageKey, val);
+                mirrorLinkedUnit(storageKey, val);
+            }
+            syncConversionFactorUnitsForSubgroup(subgroup, val, {
+                skipAssessmentForm: true,
+                skipHeadingRefresh: false,
+            });
+            const scopeSel = storageKey
+                ? document.querySelector(
+                      `.assessment-scope-unit[data-storage-key="${CSS.escape(storageKey)}"]:not(.conversion-factor-group-unit)`
+                  )
+                : null;
+            if (scopeSel?.dataset.unitSync) {
+                syncCategoryUnits(scopeSel.dataset.unitSync, val);
+            }
+        });
+
+        return select;
     }
 
     function findUnitOptionsForStorageKey(storageKey) {
@@ -971,7 +1060,12 @@
             if (control.dataset.unitSync) {
                 syncCategoryUnits(control.dataset.unitSync, val);
             }
-            if (control.classList.contains('assessment-scope-unit') && key !== 'assessmentCalculationUnit') {
+            if (
+                control.classList.contains('assessment-scope-unit') &&
+                key !== 'assessmentCalculationUnit' &&
+                !control.classList.contains('conversion-factor-group-unit')
+            ) {
+                setUnitSelectValue(key, val);
                 syncFactorUnitSelectsFromCategoryUnit(key, val);
                 refreshConversionFactorHeadings();
             }
@@ -1208,6 +1302,9 @@
         getSubgroupUnitDisplayLabels,
         getConversionFactorGroupHeading,
         refreshConversionFactorHeadings,
+        createConversionFactorGroupUnitSelect,
+        syncConversionFactorUnitsForSubgroup,
+        syncFactorUnitSelectsFromCategoryUnit,
         getUnitDisplayLabelsForStorageKey,
     };
 

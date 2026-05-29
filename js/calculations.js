@@ -693,17 +693,20 @@ function rebuildConversionFactorCheckboxes() {
             en: humanizeFactorKey(subgroup),
             pt: humanizeFactorKey(subgroup),
         };
-        const heading =
-            window.AssessmentScopeUnits?.getConversionFactorGroupHeading
-                ? window.AssessmentScopeUnits.getConversionFactorGroupHeading(subgroup, titles)
-                : titles;
         const group = document.createElement('div');
         group.className = 'conversion-factor-group';
+
+        const header = document.createElement('div');
+        header.className = 'conversion-factor-group-header';
         const h3 = document.createElement('h3');
-        h3.textContent = heading.en;
-        h3.setAttribute('data-en', heading.en);
-        h3.setAttribute('data-pt', heading.pt);
-        group.appendChild(h3);
+        h3.textContent = titles.en;
+        h3.setAttribute('data-en', titles.en);
+        h3.setAttribute('data-pt', titles.pt);
+        header.appendChild(h3);
+        if (window.AssessmentScopeUnits?.createConversionFactorGroupUnitSelect) {
+            header.appendChild(window.AssessmentScopeUnits.createConversionFactorGroupUnitSelect(subgroup));
+        }
+        group.appendChild(header);
         items.forEach(({ key, label }) => {
             const row = document.createElement('div');
             row.className = 'conversion-factor-row';

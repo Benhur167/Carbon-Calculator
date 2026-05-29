@@ -2406,10 +2406,24 @@ function toggleDashboardWidgets() {
         { id: 'bills', name: { en: 'Bills to Pay', pt: 'Contas a Pagar' } },
         { id: 'pie-chart', name: { en: 'Emissions by Category (Pie Chart)', pt: 'Emissões por Categoria (Gráfico de Pizza)' } },
         { id: 'bar-chart', name: { en: 'Year Comparison (Bar Chart)', pt: 'Comparação Anual (Gráfico de Barras)' } },
-        { id: 'line-chart', name: { en: 'Monthly Trend (Line Chart)', pt: 'Tendência Mensal (Gráfico de Linha)' } },
-        { id: 'source-trend-chart', name: { en: 'Trend by Source Category', pt: 'Tendência por Categoria' } },
-        { id: 'watchlist', name: { en: 'Account Watchlist', pt: 'Contas Monitoradas' } }
+        { id: 'line-chart', name: { en: 'Monthly Trend – Total (Line Chart)', pt: 'Tendência Mensal – Total' } },
+        { id: 'source-trend-chart', name: { en: 'Monthly Trend – All Sources', pt: 'Tendência Mensal – Todas as Fontes' } },
+        { id: 'watchlist', name: { en: 'Account Watchlist', pt: 'Contas Monitoradas' } },
     ];
+
+    const emissionCategories = Array.isArray(window.DATA_INPUT_CATEGORIES) ? window.DATA_INPUT_CATEGORIES : [];
+    emissionCategories.forEach((category) => {
+        const meta = window.DATA_TAB_META?.[category];
+        const en = meta?.titleEn || category;
+        const pt = meta?.titlePt || category;
+        allWidgets.push({
+            id: `source-trend-${category}`,
+            name: {
+                en: `Monthly Trend – ${en}`,
+                pt: `Tendência Mensal – ${pt}`,
+            },
+        });
+    });
     
     const checkboxesDiv = modal.querySelector('#widgetCheckboxes');
     allWidgets.forEach(widget => {
@@ -2923,6 +2937,9 @@ function toggleLanguage() {
     appState.currentLanguage = appState.currentLanguage === 'en' ? 'pt' : 'en';
     localStorage.setItem('language', appState.currentLanguage);
     updateLanguage();
+    if (document.querySelector('[data-content="dashboard"]')?.classList.contains('active') && typeof updateDashboard === 'function') {
+        updateDashboard();
+    }
     if (window.GeneralInfo?.syncLocationCountryFromLanguage) {
         window.GeneralInfo.syncLocationCountryFromLanguage(getOrgLocalItem, setOrgLocalItem);
     }

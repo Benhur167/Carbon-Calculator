@@ -941,6 +941,44 @@ body {
     margin-bottom: 8px;
 }
 
+.conversion-factor-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.conversion-factor-group-header h3 {
+    margin: 0;
+    flex: 1;
+    min-width: 100px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    padding: 8px 12px;
+    background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    border-radius: 6px;
+}
+
+.conversion-factor-group-unit {
+    min-width: 140px;
+    max-width: 200px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.conversion-factor-group-unit:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
 .conversion-factor-group label {
     display: flex;
     align-items: center;
@@ -1479,6 +1517,82 @@ body {
 .chart-header h3 {
     margin: 0;
     flex: 1;
+}
+
+.chart-style-btn {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-main);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.chart-style-btn:hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    background: var(--bg-card);
+}
+
+.source-trend-charts-grid {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+@media (max-width: 900px) {
+    .source-trend-charts-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.chart-style-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.chart-style-form label input[type="text"],
+.chart-style-form label input[type="number"],
+.chart-style-form label select {
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-main);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.chart-style-color-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.chart-style-color-row span {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.chart-style-color-row input[type="color"] {
+    width: 48px;
+    height: 32px;
+    padding: 2px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
 }
 
 .chart-card {

@@ -16,6 +16,18 @@ function _chartTheme() {
 }
 
 const CHART_PREFS_KEY = 'carbonChartPreferences';
+const CATEGORY_COLOR_PALETTE = [
+    '#0EA5E9', '#F59E0B', '#16A34A', '#DC2626', '#64748B', '#6610F2', '#FD7E14', '#20C997', '#E83E8C',
+];
+const sourceTrendChartInstances = new Map();
+let _chartStyleModalTargetId = null;
+
+const CHART_MODAL_TITLES = {
+    pieChart: { en: 'Emissions by Category', pt: 'Emissões por Categoria' },
+    barChart: { en: 'Year-over-Year Comparison', pt: 'Comparação Ano a Ano' },
+    lineChart: { en: 'Monthly Emissions Trend (Total)', pt: 'Tendência Mensal (Total)' },
+    sourceTrendChart: { en: 'Monthly Trend by Source (All)', pt: 'Tendência por fonte (todas)' },
+};
 
 function getChartPrefs() {
     const defaults = {
@@ -24,49 +36,225 @@ function getChartPrefs() {
         fontFamily: 'Inter, Arial, sans-serif',
         fontSize: 12,
         fontWeight: '500',
+        charts: {},
     };
     try {
         const parsed = JSON.parse(localStorage.getItem(CHART_PREFS_KEY) || '{}');
-        return { ...defaults, ...parsed };
+        return {
+            ...defaults,
+            ...parsed,
+            charts: { ...(parsed.charts || {}) },
+        };
     } catch {
         return defaults;
     }
 }
 
 function saveChartPrefs(prefs) {
-    localStorage.setItem(CHART_PREFS_KEY, JSON.stringify({ ...getChartPrefs(), ...prefs }));
+    localStorage.setItem(CHART_PREFS_KEY, JSON.stringify(prefs));
 }
 
-function openChartStyleModal() {
+function getChartConfig(chartId) {
     const prefs = getChartPrefs();
+    const per = (chartId && prefs.charts[chartId]) || {};
+    return {
+        fontFamily: per.fontFamily || prefs.fontFamily,
+        fontSize: per.fontSize != null ? per.fontSize : prefs.fontSize,
+        fontWeight: per.fontWeight || prefs.fontWeight,
+        borderColor: per.borderColor || per.primaryColor || prefs.primaryColor,
+        fillColor: per.fillColor || per.secondaryColor || prefs.secondaryColor,
+        colors: Array.isArray(per.colors) ? per.colors : null,
+        datasetColors: per.datasetColors && typeof per.datasetColors === 'object' ? per.datasetColors : null,
+    };
+}
+
+function chartTickFont(chartId) {
+    const c = getChartConfig(chartId);
+    return { family: c.fontFamily, size: c.fontSize, weight: c.fontWeight };
+}
+
+function chartScaleOptions(chartId, ct) {
+    const tickColor = ct?.tick || (appState.darkMode ? '#94A3B8' : '#64748B');
+    const gridColor = ct?.grid || (appState.darkMode ? '#1E293B' : '#CBD5E1');
+    const font = chartTickFont(chartId);
+    return {
+        y: {
+            beginAtZero: true,
+            ticks: { color: tickColor, font, callback: (v) => Number(v).toFixed(2) },
+            grid: { color: gridColor },
+        },
+        x: {
+            ticks: { color: tickColor, font },
+            grid: { color: gridColor },
+        },
+    };
+}
+
+function hexToRgba(hex, alpha) {
+    const raw = String(hex || '#0EA5E9').replace('#', '');
+    if (raw.length !== 6) return `rgba(14, 165, 233, ${alpha})`;
+    const r = parseInt(raw.slice(0, 2), 16);
+    const g = parseInt(raw.slice(2, 4), 16);
+    const b = parseInt(raw.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function defaultPaletteColors(count) {
+    const ct = _chartTheme();
+    const palette = ct?.pie || ct?.yearBar || CATEGORY_COLOR_PALETTE;
+    const colors = [];
+    for (let i = 0; i < count; i++) colors.push(palette[i % palette.length]);
+    return colors;
+}
+
+function getCategoryDisplayName(category) {
+    const meta = window.DATA_TAB_META?.[category];
+    if (meta) {
+        return appState.currentLanguage === 'pt' ? meta.titlePt : meta.titleEn;
+    }
+    return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+function getEmissionCategories() {
+    if (Array.isArray(window.DATA_INPUT_CATEGORIES) && window.DATA_INPUT_CATEGORIES.length) {
+        return window.DATA_INPUT_CATEGORIES;
+    }
+    return ['water', 'energy', 'waste', 'transport', 'refrigerants'];
+}
+
+function getMonthLabels() {
+    return appState.currentLanguage === 'en'
+        ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        : ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+}
+
+function chartModalTitle(chartId) {
+    if (chartId && chartId.startsWith('sourceTrend_')) {
+        const cat = chartId.replace('sourceTrend_', '');
+        const name = getCategoryDisplayName(cat);
+        return appState.currentLanguage === 'pt'
+            ? `Tendência mensal — ${name}`
+            : `Monthly trend — ${name}`;
+    }
+    const t = CHART_MODAL_TITLES[chartId];
+    if (!t) return chartId || 'Chart';
+    return appState.currentLanguage === 'pt' ? t.pt : t.en;
+}
+
+function buildChartStyleFormHtml(chartId) {
+    const prefs = getChartPrefs();
+    const cfg = chartId ? getChartConfig(chartId) : prefs;
+    const isPie = chartId === 'pieChart';
+    const isMultiLine = chartId === 'sourceTrendChart';
+    const isCategoryLine = chartId && chartId.startsWith('sourceTrend_');
+
+    let colorSection = '';
+    if (isPie) {
+        const totals = window.carbonCalc?.getCategoryTotals?.() || {};
+        const keys = Object.keys(totals);
+        const stored = prefs.charts.pieChart?.colors || defaultPaletteColors(keys.length || 5);
+        keys.forEach((key, idx) => {
+            const label = getCategoryDisplayName(key);
+            const val = stored[idx] || defaultPaletteColors(keys.length)[idx];
+            colorSection += `
+                <div class="chart-style-color-row">
+                    <span>${label}</span>
+                    <input type="color" data-pie-slice="${key}" value="${val}">
+                </div>`;
+        });
+        if (!keys.length) {
+            colorSection = `<p style="color:var(--text-secondary);font-size:13px;">Enter data to customize slice colors.</p>`;
+        }
+    } else if (isMultiLine) {
+        const dataByCategory = window.carbonCalc?.getMonthlyTotalsByCategory?.() || {};
+        const cats = Object.keys(dataByCategory);
+        const stored = prefs.charts.sourceTrendChart?.datasetColors || {};
+        cats.forEach((cat, idx) => {
+            const label = getCategoryDisplayName(cat);
+            const val = stored[cat] || defaultPaletteColors(cats.length)[idx];
+            colorSection += `
+                <div class="chart-style-color-row">
+                    <span>${label}</span>
+                    <input type="color" data-dataset-cat="${cat}" value="${val}">
+                </div>`;
+        });
+    } else {
+        colorSection = `
+            <label>Line / bar color
+                <input type="color" id="chartBorderColor" value="${cfg.borderColor}">
+            </label>
+            <label>Fill color
+                <input type="color" id="chartFillColor" value="${cfg.fillColor}">
+            </label>`;
+        if (chartId === 'barChart') {
+            const yearComparison = window.carbonCalc?.getYearComparison?.() || {};
+            const years = Object.keys(yearComparison).sort();
+            const stored = prefs.charts.barChart?.colors || defaultPaletteColors(years.length || 2);
+            colorSection += `<p style="margin:12px 0 8px;font-size:13px;color:var(--text-secondary);">Bar colors by year</p>`;
+            years.forEach((year, idx) => {
+                colorSection += `
+                    <div class="chart-style-color-row">
+                        <span>${year}</span>
+                        <input type="color" data-bar-year="${year}" value="${stored[idx] || defaultPaletteColors(years.length)[idx]}">
+                    </div>`;
+            });
+        }
+    }
+
+    const globalNote = chartId
+        ? ''
+        : `<p style="margin-bottom:12px;color:var(--text-secondary);font-size:13px;">Defaults for new charts. Use the palette icon on each chart for chart-specific styles.</p>`;
+
+  return `
+        ${globalNote}
+        <div class="chart-style-form">
+            <label>Font family
+                <input type="text" id="chartFontFamily" value="${cfg.fontFamily || prefs.fontFamily}" placeholder="Inter, Arial, sans-serif">
+            </label>
+            <label>Font size
+                <input type="number" id="chartFontSize" min="10" max="20" value="${cfg.fontSize ?? prefs.fontSize}">
+            </label>
+            <label>Font weight
+                <select id="chartFontWeight">
+                    ${['400', '500', '600', '700'].map((w) => `<option value="${w}" ${String(cfg.fontWeight || prefs.fontWeight) === w ? 'selected' : ''}>${w}</option>`).join('')}
+                </select>
+            </label>
+            ${!chartId ? `
+            <label>Default line color
+                <input type="color" id="chartPrimaryColor" value="${prefs.primaryColor}">
+            </label>
+            <label>Default fill color
+                <input type="color" id="chartSecondaryColor" value="${prefs.secondaryColor}">
+            </label>` : ''}
+            ${chartId && (isPie || isMultiLine) ? '<p style="margin:12px 0 8px;font-size:13px;color:var(--text-secondary);">Colors</p>' : ''}
+            ${colorSection}
+        </div>`;
+}
+
+function openChartStyleModal(chartId) {
+    _chartStyleModalTargetId = chartId || null;
     const existing = document.getElementById('chartStyleModal');
     if (existing) existing.remove();
     const modal = document.createElement('div');
     modal.id = 'chartStyleModal';
     modal.className = 'widget-modal';
+    const title = chartId
+        ? (appState.currentLanguage === 'pt' ? 'Estilo do gráfico' : 'Chart style')
+        : (appState.currentLanguage === 'pt' ? 'Estilos padrão dos gráficos' : 'Default chart styles');
+    const subtitle = chartId ? `<p style="margin:0 0 12px;color:var(--text-secondary);font-size:14px;">${chartModalTitle(chartId)}</p>` : '';
     modal.innerHTML = `
         <div class="widget-modal-content">
             <div class="widget-modal-header">
-                <h3>Chart Style Preferences</h3>
+                <h3>${title}</h3>
                 <button class="widget-modal-close" onclick="document.getElementById('chartStyleModal')?.remove()"><i class="fas fa-times"></i></button>
             </div>
             <div class="widget-modal-body">
-                <label>Primary color <input type="color" id="chartPrimaryColor" value="${prefs.primaryColor}"></label>
-                <label>Secondary color <input type="color" id="chartSecondaryColor" value="${prefs.secondaryColor}"></label>
-                <label>Font family <input type="text" id="chartFontFamily" value="${prefs.fontFamily}"></label>
-                <label>Font size <input type="number" id="chartFontSize" min="10" max="18" value="${prefs.fontSize}"></label>
-                <label>Font weight
-                    <select id="chartFontWeight">
-                        <option value="400" ${String(prefs.fontWeight) === '400' ? 'selected' : ''}>400</option>
-                        <option value="500" ${String(prefs.fontWeight) === '500' ? 'selected' : ''}>500</option>
-                        <option value="600" ${String(prefs.fontWeight) === '600' ? 'selected' : ''}>600</option>
-                        <option value="700" ${String(prefs.fontWeight) === '700' ? 'selected' : ''}>700</option>
-                    </select>
-                </label>
+                ${subtitle}
+                ${buildChartStyleFormHtml(chartId)}
             </div>
             <div class="widget-modal-footer">
-                <button class="btn-secondary" onclick="resetChartStyleDefaults()">Reset defaults</button>
-                <button class="btn-primary" onclick="applyChartStylePrefs()">Apply</button>
+                <button class="btn-secondary" onclick="resetChartStyleDefaults()">${appState.currentLanguage === 'pt' ? 'Repor' : 'Reset'}</button>
+                <button class="btn-primary" onclick="applyChartStylePrefs()">${appState.currentLanguage === 'pt' ? 'Aplicar' : 'Apply'}</button>
             </div>
         </div>
     `;
@@ -74,22 +262,79 @@ function openChartStyleModal() {
 }
 
 function applyChartStylePrefs() {
-    const prefs = {
-        primaryColor: document.getElementById('chartPrimaryColor')?.value || '#0EA5E9',
-        secondaryColor: document.getElementById('chartSecondaryColor')?.value || '#16A34A',
-        fontFamily: document.getElementById('chartFontFamily')?.value || 'Inter, Arial, sans-serif',
-        fontSize: Number(document.getElementById('chartFontSize')?.value || 12),
-        fontWeight: document.getElementById('chartFontWeight')?.value || '500',
-    };
+    const prefs = getChartPrefs();
+    const chartId = _chartStyleModalTargetId;
+    const fontFamily = document.getElementById('chartFontFamily')?.value || prefs.fontFamily;
+    const fontSize = Number(document.getElementById('chartFontSize')?.value || prefs.fontSize);
+    const fontWeight = document.getElementById('chartFontWeight')?.value || prefs.fontWeight;
+
+    if (!chartId) {
+        prefs.fontFamily = fontFamily;
+        prefs.fontSize = fontSize;
+        prefs.fontWeight = fontWeight;
+        prefs.primaryColor = document.getElementById('chartPrimaryColor')?.value || prefs.primaryColor;
+        prefs.secondaryColor = document.getElementById('chartSecondaryColor')?.value || prefs.secondaryColor;
+    } else {
+        if (!prefs.charts[chartId]) prefs.charts[chartId] = {};
+        const entry = prefs.charts[chartId];
+        entry.fontFamily = fontFamily;
+        entry.fontSize = fontSize;
+        entry.fontWeight = fontWeight;
+
+        if (chartId === 'pieChart') {
+            const slices = document.querySelectorAll('#chartStyleModal [data-pie-slice]');
+            entry.colors = Array.from(slices).map((el) => el.value);
+            entry.sliceKeys = Array.from(slices).map((el) => el.getAttribute('data-pie-slice'));
+        } else if (chartId === 'sourceTrendChart') {
+            entry.datasetColors = {};
+            document.querySelectorAll('#chartStyleModal [data-dataset-cat]').forEach((el) => {
+                entry.datasetColors[el.getAttribute('data-dataset-cat')] = el.value;
+            });
+        } else if (chartId === 'barChart') {
+            entry.borderColor = document.getElementById('chartBorderColor')?.value || entry.borderColor;
+            entry.fillColor = document.getElementById('chartFillColor')?.value || entry.fillColor;
+            const yearInputs = document.querySelectorAll('#chartStyleModal [data-bar-year]');
+            if (yearInputs.length) {
+                entry.colors = Array.from(yearInputs).map((el) => el.value);
+                entry.barYears = Array.from(yearInputs).map((el) => el.getAttribute('data-bar-year'));
+            }
+        } else {
+            entry.borderColor = document.getElementById('chartBorderColor')?.value || entry.borderColor;
+            entry.fillColor = document.getElementById('chartFillColor')?.value || entry.fillColor;
+        }
+    }
+
     saveChartPrefs(prefs);
     document.getElementById('chartStyleModal')?.remove();
+    _chartStyleModalTargetId = null;
     updateDashboard();
 }
 
 function resetChartStyleDefaults() {
-    localStorage.removeItem(CHART_PREFS_KEY);
-    updateDashboard();
+    const chartId = _chartStyleModalTargetId;
+    const prefs = getChartPrefs();
+    if (chartId) {
+        delete prefs.charts[chartId];
+        saveChartPrefs(prefs);
+    } else {
+        localStorage.removeItem(CHART_PREFS_KEY);
+    }
     document.getElementById('chartStyleModal')?.remove();
+    _chartStyleModalTargetId = null;
+    updateDashboard();
+}
+
+function resolvePieColors(labels, keys) {
+    const cfg = getChartConfig('pieChart');
+    const defaults = defaultPaletteColors(labels.length);
+    if (!cfg.colors?.length) return defaults;
+    if (cfg.sliceKeys?.length) {
+        return keys.map((key, idx) => {
+            const storedIdx = cfg.sliceKeys.indexOf(key);
+            return storedIdx >= 0 ? cfg.colors[storedIdx] : defaults[idx];
+        });
+    }
+    return cfg.colors.slice(0, labels.length).concat(defaults).slice(0, labels.length);
 }
 
 function chartLabelForUnit() {
@@ -253,10 +498,12 @@ function updateKPIs() {
 // ============================================
 
 function updateCharts() {
+    ensureSourceTrendChartCards();
     updatePieChart();
     updateBarChart();
     updateLineChart();
     updateSourceTrendChart();
+    updateSourceTrendCharts();
 }
 
 function updateAccountsCharts() {
@@ -282,43 +529,26 @@ function updateAccountsCharts() {
 
 function updatePieChart() {
     const ct = _chartTheme();
-    const prefs = getChartPrefs();
     const totals = window.carbonCalc.getCategoryTotals();
-    const labels = Object.keys(totals).map(key => {
-        const translations = {
-            water: appState.currentLanguage === 'en' ? 'Water' : 'Água',
-            energy: appState.currentLanguage === 'en' ? 'Energy' : 'Energia',
-            waste: appState.currentLanguage === 'en' ? 'Waste' : 'Resíduos',
-            transport: appState.currentLanguage === 'en' ? 'Company fleet' : 'Frota',
-            businessTravel: appState.currentLanguage === 'en' ? 'Business travel' : 'Viagens de negócios',
-            freight: appState.currentLanguage === 'en' ? 'Freighting goods' : 'Frete',
-            staffCommute: appState.currentLanguage === 'en' ? 'Staff commute' : 'Deslocamento',
-            wfh: appState.currentLanguage === 'en' ? 'Working from home' : 'Trabalho remoto',
-            materials: appState.currentLanguage === 'en' ? 'Materials' : 'Materiais',
-            refrigerants: appState.currentLanguage === 'en' ? 'Refrigerants' : 'Refrigerantes',
-        };
-        return translations[key] || key;
-    });
+    const keys = Object.keys(totals);
+    const labels = keys.map((key) => getCategoryDisplayName(key));
     const data = Object.values(totals);
-    
+
     const ctx = document.getElementById('pieChart');
-    
-    if (pieChart) {
-        pieChart.destroy();
-    }
-    
+    if (!ctx) return;
+
+    if (pieChart) pieChart.destroy();
+
     pieChart = new Chart(ctx, {
         type: 'pie',
         data: {
-            labels: labels,
+            labels,
             datasets: [{
-                data: data,
-                backgroundColor: ct?.pie || [
-                    '#0EA5E9', '#F59E0B', '#16A34A', '#DC2626', '#64748B'
-                ],
+                data,
+                backgroundColor: resolvePieColors(labels, keys),
                 borderWidth: 2,
-                borderColor: ct?.pieBorder || (appState.darkMode ? '#0F172A' : '#FFFFFF')
-            }]
+                borderColor: ct?.pieBorder || (appState.darkMode ? '#0F172A' : '#FFFFFF'),
+            }],
         },
         options: {
             responsive: true,
@@ -328,26 +558,23 @@ function updatePieChart() {
                     position: 'bottom',
                     labels: {
                         color: ct?.legend || (appState.darkMode ? '#E2E8F0' : '#0F172A'),
-                        font: { family: prefs.fontFamily, size: prefs.fontSize, weight: prefs.fontWeight },
+                        font: chartTickFont('pieChart'),
                         padding: 15,
-                        font: {
-                            size: 12
-                        }
-                    }
+                    },
                 },
                 tooltip: {
                     callbacks: {
-                        label: function(context) {
+                        label(context) {
                             const label = context.label || '';
                             const value = context.parsed || 0;
                             const total = context.dataset.data.reduce((a, b) => a + b, 0);
                             const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
                             return `${label}: ${convertTonnesToDisplayValue(value).toFixed(3)} ${chartLabelForUnit()} (${percentage}%)`;
-                        }
-                    }
-                }
-            }
-        }
+                        },
+                    },
+                },
+            },
+        },
     });
 }
 
@@ -357,7 +584,7 @@ function updatePieChart() {
 
 function updateBarChart() {
     const ct = _chartTheme();
-    const prefs = getChartPrefs();
+    const barCfg = getChartConfig('barChart');
     // Force recalculation first
     if (window.carbonCalc && window.carbonCalc.calculateAllTotals) {
         window.carbonCalc.calculateAllTotals();
@@ -412,8 +639,10 @@ function updateBarChart() {
         }
     }
     
-    // Generate colors dynamically based on number of years
-    const colors = generateYearColors(years.length);
+    let colors = barCfg.colors?.length === years.length
+        ? barCfg.colors
+        : generateYearColors(years.length);
+    if (!colors?.length) colors = generateYearColors(years.length);
     
     const ctx = document.getElementById('barChart');
     if (!ctx) {
@@ -457,32 +686,28 @@ function updateBarChart() {
             indexAxis: 'x',
             scales: {
                 y: {
-                    beginAtZero: true,
+                    ...chartScaleOptions('barChart', ct).y,
                     position: 'left',
                     ticks: {
-                        color: ct?.tick || (appState.darkMode ? '#94A3B8' : '#64748B'),
-                        font: { family: prefs.fontFamily, size: prefs.fontSize, weight: prefs.fontWeight },
-                        callback: function(value) {
-                            return value.toFixed(1);
-                        }
+                        ...chartScaleOptions('barChart', ct).y.ticks,
+                        callback(value) {
+                            return Number(value).toFixed(1);
+                        },
                     },
                     grid: {
-                        color: ct?.grid || (appState.darkMode ? '#1E293B' : '#CBD5E1'),
-                        drawBorder: false
-                    }
+                        ...chartScaleOptions('barChart', ct).y.grid,
+                        drawBorder: false,
+                    },
                 },
                 x: {
                     position: 'bottom',
                     ticks: {
-                        color: ct?.tick || (appState.darkMode ? '#94A3B8' : '#64748B'),
+                        ...chartScaleOptions('barChart', ct).x.ticks,
                         maxRotation: 0,
-                        minRotation: 0
+                        minRotation: 0,
                     },
-                    grid: {
-                        display: false,
-                        drawBorder: false
-                    }
-                }
+                    grid: { display: false, drawBorder: false },
+                },
             },
             plugins: {
                 legend: {
@@ -506,18 +731,16 @@ function updateBarChart() {
 
 function updateLineChart() {
     const ct = _chartTheme();
-    const prefs = getChartPrefs();
+    const lineCfg = getChartConfig('lineChart');
     const monthlyData = window.carbonCalc.getMonthlyTotals();
-    const monthNames = appState.currentLanguage === 'en' 
-        ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        : ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    
+    const monthNames = getMonthLabels();
+
     const ctx = document.getElementById('lineChart');
-    
-    if (lineChart) {
-        lineChart.destroy();
-    }
-    
+    if (!ctx) return;
+
+    if (lineChart) lineChart.destroy();
+
+    const border = lineCfg.borderColor || ct?.lineBorder || '#0EA5E9';
     lineChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -527,90 +750,70 @@ function updateLineChart() {
                     ? `Monthly Emissions (${chartLabelForUnit()})`
                     : `Emissões Mensais (${chartLabelForUnit()})`,
                 data: monthlyData.map(convertTonnesToDisplayValue),
-                borderColor: prefs.primaryColor || ct?.lineBorder || '#0EA5E9',
-                backgroundColor: ct?.lineFill || 'rgba(14, 165, 233, 0.1)',
+                borderColor: border,
+                backgroundColor: hexToRgba(lineCfg.fillColor || border, 0.12),
                 borderWidth: 3,
                 fill: true,
                 tension: 0.4,
                 pointRadius: 5,
                 pointHoverRadius: 7,
-                pointBackgroundColor: ct?.pointBg || '#0EA5E9',
+                pointBackgroundColor: border,
                 pointBorderColor: ct?.pieBorder || '#FFFFFF',
-                pointBorderWidth: 2
-            }]
+                pointBorderWidth: 2,
+            }],
         },
         options: {
             responsive: true,
             maintainAspectRatio: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        color: ct?.tick || (appState.darkMode ? '#94A3B8' : '#64748B'),
-                        font: { family: prefs.fontFamily, size: prefs.fontSize, weight: prefs.fontWeight },
-                        callback: function(value) {
-                            return value.toFixed(2);
-                        }
-                    },
-                    grid: {
-                        color: ct?.grid || (appState.darkMode ? '#1E293B' : '#CBD5E1')
-                    }
-                },
-                x: {
-                    ticks: {
-                        color: ct?.tick || (appState.darkMode ? '#94A3B8' : '#64748B')
-                    },
-                    grid: {
-                        color: ct?.grid || (appState.darkMode ? '#1E293B' : '#CBD5E1')
-                    }
-                }
-            },
+            scales: chartScaleOptions('lineChart', ct),
             plugins: {
-                legend: {
-                    display: false
-                },
+                legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: function(context) {
+                        label(context) {
                             return `${context.parsed.y.toFixed(3)} ${chartLabelForUnit()}`;
-                        }
-                    }
-                }
-            }
-        }
+                        },
+                    },
+                },
+            },
+        },
     });
 }
 
 function updateSourceTrendChart() {
     if (!window.carbonCalc?.getMonthlyTotalsByCategory) return;
     const ct = _chartTheme();
-    const prefs = getChartPrefs();
+    const cfg = getChartConfig('sourceTrendChart');
     const chartEl = document.getElementById('sourceTrendChart');
     if (!chartEl) return;
     const dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory();
-    const labels = appState.currentLanguage === 'en'
-        ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        : ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const labels = getMonthLabels();
+    const cats = Object.keys(dataByCategory);
+    const defaultColors = defaultPaletteColors(cats.length);
+
     if (sourceTrendChart) sourceTrendChart.destroy();
     sourceTrendChart = new Chart(chartEl, {
         type: 'line',
         data: {
             labels,
-            datasets: Object.keys(dataByCategory).map((cat, idx) => ({
-                label: cat.charAt(0).toUpperCase() + cat.slice(1),
+            datasets: cats.map((cat, idx) => ({
+                label: getCategoryDisplayName(cat),
                 data: (dataByCategory[cat] || []).map(convertTonnesToDisplayValue),
-                borderColor: [prefs.primaryColor, prefs.secondaryColor, '#F59E0B', '#DC2626', '#64748B'][idx % 5],
+                borderColor: cfg.datasetColors?.[cat] || defaultColors[idx],
                 tension: 0.35,
                 fill: false,
+                borderWidth: 2,
             })),
         },
         options: {
             responsive: true,
+            maintainAspectRatio: true,
+            scales: chartScaleOptions('sourceTrendChart', ct),
             plugins: {
                 legend: {
                     labels: {
                         color: ct?.legend || (appState.darkMode ? '#E2E8F0' : '#0F172A'),
-                        font: { family: prefs.fontFamily, size: prefs.fontSize, weight: prefs.fontWeight },
+                        font: chartTickFont('sourceTrendChart'),
                     },
                 },
                 tooltip: {
@@ -620,6 +823,122 @@ function updateSourceTrendChart() {
                 },
             },
         },
+    });
+}
+
+function ensureSourceTrendChartCards() {
+    const grid = document.getElementById('sourceTrendChartsGrid');
+    if (!grid) return;
+
+    const categories = getEmissionCategories();
+    const validWidgets = new Set(categories.map((c) => `source-trend-${c}`));
+
+    grid.querySelectorAll('.source-trend-category-card').forEach((card) => {
+        const wid = card.getAttribute('data-widget');
+        if (wid && !validWidgets.has(wid)) card.remove();
+    });
+
+    categories.forEach((category, idx) => {
+        const widgetId = `source-trend-${category}`;
+        const chartId = `sourceTrend_${category}`;
+        let card = grid.querySelector(`[data-widget="${widgetId}"]`);
+        const titleEn = `Monthly Emissions Trend — ${getCategoryDisplayName(category)}`;
+        const titlePt = `Tendência Mensal de Emissões — ${getCategoryDisplayName(category)}`;
+
+        if (!card) {
+            card = document.createElement('div');
+            card.className = 'chart-card widget-card source-trend-category-card';
+            card.setAttribute('data-widget', widgetId);
+            card.innerHTML = `
+                <div class="chart-header">
+                    <h3 data-en="${titleEn}" data-pt="${titlePt}">${titleEn}</h3>
+                    <button type="button" class="chart-style-btn" title="Customize chart colors and font">
+                        <i class="fas fa-palette"></i>
+                    </button>
+                </div>
+                <canvas id="sourceTrendChart_${category}"></canvas>
+                <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>
+            `;
+            const styleBtn = card.querySelector('.chart-style-btn');
+            styleBtn.addEventListener('click', () => openChartStyleModal(chartId));
+            grid.appendChild(card);
+        } else {
+            const h3 = card.querySelector('h3');
+            if (h3) {
+                h3.textContent = appState.currentLanguage === 'pt' ? titlePt : titleEn;
+                h3.setAttribute('data-en', titleEn);
+                h3.setAttribute('data-pt', titlePt);
+            }
+        }
+
+        if (appState.hiddenWidgets?.includes(widgetId)) {
+            card.classList.add('hidden');
+        }
+    });
+}
+
+function updateSourceTrendCharts() {
+    if (!window.carbonCalc?.getMonthlyTotalsByCategory) return;
+    ensureSourceTrendChartCards();
+
+    const dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory();
+    const labels = getMonthLabels();
+    const ct = _chartTheme();
+    const categories = getEmissionCategories();
+
+    categories.forEach((category, idx) => {
+        const chartId = `sourceTrend_${category}`;
+        const canvas = document.getElementById(`sourceTrendChart_${category}`);
+        if (!canvas) return;
+
+        const card = canvas.closest('.widget-card');
+        if (card?.classList.contains('hidden')) return;
+
+        const cfg = getChartConfig(chartId);
+        const border = cfg.borderColor || defaultPaletteColors(categories.length)[idx];
+        const existing = sourceTrendChartInstances.get(category);
+        if (existing) existing.destroy();
+
+        const instance = new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: getCategoryDisplayName(category),
+                    data: (dataByCategory[category] || []).map(convertTonnesToDisplayValue),
+                    borderColor: border,
+                    backgroundColor: hexToRgba(cfg.fillColor || border, 0.12),
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 4,
+                    pointBackgroundColor: border,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: chartScaleOptions(chartId, ct),
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label(context) {
+                                return `${context.parsed.y.toFixed(3)} ${chartLabelForUnit()}`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        sourceTrendChartInstances.set(category, instance);
+    });
+
+    sourceTrendChartInstances.forEach((chart, cat) => {
+        if (!categories.includes(cat)) {
+            chart.destroy();
+            sourceTrendChartInstances.delete(cat);
+        }
     });
 }
 
@@ -682,6 +1001,8 @@ window.addEventListener('resize', function() {
         if (pieChart) updatePieChart();
         if (barChart) updateBarChart();
         if (lineChart) updateLineChart();
+        if (sourceTrendChart) updateSourceTrendChart();
+        updateSourceTrendCharts();
     }, 300);
 });
 
@@ -1049,5 +1370,7 @@ window.getChartPrefs = getChartPrefs;
 window.openChartStyleModal = openChartStyleModal;
 window.applyChartStylePrefs = applyChartStylePrefs;
 window.resetChartStyleDefaults = resetChartStyleDefaults;
+window.getChartConfig = getChartConfig;
+window.ensureSourceTrendChartCards = ensureSourceTrendChartCards;
 
 
