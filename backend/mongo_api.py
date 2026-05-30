@@ -302,67 +302,129 @@ def _mail_settings_ready() -> bool:
     )
 
 
-def _resend_settings_ready() -> bool:
-    return bool(
-        (os.environ.get('RESEND_API_KEY') or '').strip()
-        and (
-            (os.environ.get('RESEND_FROM') or '').strip()
-            or (os.environ.get('MAIL_DEFAULT_SENDER') or '').strip()
-        )
-    )
+def _mail_use_ssl() -> bool:
+    return (os.environ.get('MAIL_USE_SSL') or '').strip().lower() in ('1', 'true', 'yes')
 
 
-def _send_email_via_resend(to_addr: str, subject: str, text: str, html: str | None = None) -> None:
-    """
-    Send email using Resend HTTPS API.
-    Required env:
-      - RESEND_API_KEY
-      - RESEND_FROM (or MAIL_DEFAULT_SENDER fallback)
-    Optional:
-      - RESEND_API_URL (defaults to https://api.resend.com/emails)
-      - MAIL_TIMEOUT_SECONDS
-    """
-    api_key = (os.environ.get('RESEND_API_KEY') or '').strip()
-    from_addr = (os.environ.get('RESEND_FROM') or os.environ.get('MAIL_DEFAULT_SENDER') or '').strip()
-    api_url = (os.environ.get('RESEND_API_URL') or 'https://api.resend.com/emails').strip()
+def _send_smtp_email(subject: str, text: str, to_addr: str, html: str | None = None) -> None:
+    """Send email via Gmail/SMTP using MAIL_* environment variables."""
+    server = (os.environ.get('MAIL_SERVER', '') or '').strip()
+    port = int(os.environ.get('MAIL_PORT', '587'))
+    user = (os.environ.get('MAIL_USERNAME', '') or '').strip()
+    password = (os.environ.get('MAIL_PASSWORD', '') or '').strip()
+    sender = (os.environ.get('MAIL_DEFAULT_SENDER', '') or '').strip()
+    use_ssl = _mail_use_ssl()
     timeout_sec = float(os.environ.get('MAIL_TIMEOUT_SECONDS', '8'))
+    if not (server and sender and user and password):
+        raise RuntimeError('SMTP email settings unavailable (MAIL_* env vars)')
 
-    payload = {
-        'from': from_addr,
-        'to': [to_addr],
-        'subject': subject,
-        'text': text,
-    }
+    msg = EmailMessage()
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = to_addr
+    msg.set_content(text)
     if html:
-        payload['html'] = html
-    raw = json.dumps(payload).encode('utf-8')
-    req = urllib.request.Request(
-        api_url,
-        data=raw,
-        method='POST',
-        headers={
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
-            status = getattr(resp, 'status', 200)
-            if status >= 400:
-                raise RuntimeError(f'Resend API error: HTTP {status}')
-    except urllib.error.HTTPError as http_err:
-        # Preserve upstream response details (e.g., sender/domain verification errors).
-        body = ''
-        try:
-            body = (http_err.read() or b'').decode('utf-8', errors='ignore').strip()
-        except Exception:
-            body = ''
-        detail = f' ({body})' if body else ''
-        raise RuntimeError(f'Resend API error: HTTP {http_err.code}{detail}') from http_err
+        msg.add_alternative(html, subtype='html')
+
+    if use_ssl:
+        with smtplib.SMTP_SSL(server, port, timeout=timeout_sec) as smtp:
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    else:
+        with smtplib.SMTP(server, port, timeout=timeout_sec) as smtp:
+            smtp.starttls()
+            smtp.login(user, password)
+            smtp.send_message(msg)
 
 
-def _send_verification_email_via_resend(to_addr: str, code: str) -> None:
+# --- Resend (disabled; using Gmail SMTP via MAIL_* on Render) ---
+# def _resend_settings_ready() -> bool:
+#     return bool(
+#         (os.environ.get('RESEND_API_KEY') or '').strip()
+#         and (
+#             (os.environ.get('RESEND_FROM') or '').strip()
+#             or (os.environ.get('MAIL_DEFAULT_SENDER') or '').strip()
+#         )
+#     )
+#
+#
+# def _send_email_via_resend(to_addr: str, subject: str, text: str, html: str | None = None) -> None:
+#     """
+#     Send email using Resend HTTPS API.
+#     Required env:
+#       - RESEND_API_KEY
+#       - RESEND_FROM (or MAIL_DEFAULT_SENDER fallback)
+#     Optional:
+#       - RESEND_API_URL (defaults to https://api.resend.com/emails)
+#       - MAIL_TIMEOUT_SECONDS
+#     """
+#     api_key = (os.environ.get('RESEND_API_KEY') or '').strip()
+#     from_addr = (os.environ.get('RESEND_FROM') or os.environ.get('MAIL_DEFAULT_SENDER') or '').strip()
+#     api_url = (os.environ.get('RESEND_API_URL') or 'https://api.resend.com/emails').strip()
+#     timeout_sec = float(os.environ.get('MAIL_TIMEOUT_SECONDS', '8'))
+#
+#     payload = {
+#         'from': from_addr,
+#         'to': [to_addr],
+#         'subject': subject,
+#         'text': text,
+#     }
+#     if html:
+#         payload['html'] = html
+#     raw = json.dumps(payload).encode('utf-8')
+#     req = urllib.request.Request(
+#         api_url,
+#         data=raw,
+#         method='POST',
+#         headers={
+#             'Authorization': f'Bearer {api_key}',
+#             'Content-Type': 'application/json',
+#             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+#         },
+#     )
+#     try:
+#         with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+#             status = getattr(resp, 'status', 200)
+#             if status >= 400:
+#                 raise RuntimeError(f'Resend API error: HTTP {status}')
+#     except urllib.error.HTTPError as http_err:
+#         body = ''
+#         try:
+#             body = (http_err.read() or b'').decode('utf-8', errors='ignore').strip()
+#         except Exception:
+#             body = ''
+#         detail = f' ({body})' if body else ''
+#         raise RuntimeError(f'Resend API error: HTTP {http_err.code}{detail}') from http_err
+#
+#
+# def _send_verification_email_via_resend(to_addr: str, code: str) -> None:
+#     subject = 'Welcome to SQ Inspect - Your Verification Code'
+#     text = (
+#         f'Welcome to SQ Inspect!\n\n'
+#         f'We are thrilled to have you on board. To complete your signup and get started, please use the following verification code:\n\n'
+#         f'{code}\n\n'
+#         f'This code expires in 15 minutes. If you did not sign up for SQ Inspect, you can safely ignore this email.\n'
+#     )
+#     html = (
+#         f'<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">'
+#         f'<h2 style="color: #2E7D32;">Welcome to SQ Inspect!</h2>'
+#         f'<p>We are thrilled to have you on board. To complete your signup and get started, please use the verification code below:</p>'
+#         f'<div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 28px; font-weight: bold; letter-spacing: 5px; border-radius: 8px; margin: 20px 0; color: #111;">{escape(code)}</div>'
+#         f'<p style="color: #555; font-size: 14px;">This code expires in <strong>15 minutes</strong>.</p>'
+#         f'<hr style="border: none; border-top: 1px solid #eaeaea; margin: 30px 0;" />'
+#         f'<p style="color: #999; font-size: 12px;">If you did not sign up for SQ Inspect, you can safely ignore this email.</p>'
+#         f'</div>'
+#     )
+#     _send_email_via_resend(to_addr, subject, text, html)
+# --- end Resend ---
+
+
+def _dev_return_code_enabled() -> bool:
+    return (os.environ.get('DEV_RETURN_VERIFICATION_CODE', '') or '').strip().lower() in ('1', 'true', 'yes')
+
+
+def send_verification_email(to_addr: str, code: str) -> None:
+    """Send verification email via Gmail/SMTP (MAIL_* env vars)."""
     subject = 'Welcome to SQ Inspect - Your Verification Code'
     text = (
         f'Welcome to SQ Inspect!\n\n'
@@ -380,130 +442,23 @@ def _send_verification_email_via_resend(to_addr: str, code: str) -> None:
         f'<p style="color: #999; font-size: 12px;">If you did not sign up for SQ Inspect, you can safely ignore this email.</p>'
         f'</div>'
     )
-    _send_email_via_resend(to_addr, subject, text, html)
-
-
-def _dev_return_code_enabled() -> bool:
-    return (os.environ.get('DEV_RETURN_VERIFICATION_CODE', '') or '').strip().lower() in ('1', 'true', 'yes')
-
-
-def send_verification_email(to_addr: str, code: str) -> None:
-    """
-    Send verification email.
-    Priority:
-      1) Resend HTTP API when configured (RESEND_API_KEY + RESEND_FROM/MAIL_DEFAULT_SENDER)
-      2) SMTP fallback (MAIL_*)
-    """
-    resend_err = None
-    if _resend_settings_ready():
-        try:
-            _send_verification_email_via_resend(to_addr, code)
-            return
-        except Exception as e:
-            resend_err = e
-
-    server = (os.environ.get('MAIL_SERVER', '') or '').strip()
-    port = int(os.environ.get('MAIL_PORT', '587'))
-    user = (os.environ.get('MAIL_USERNAME', '') or '').strip()
-    password = (os.environ.get('MAIL_PASSWORD', '') or '').strip()
-    sender = (os.environ.get('MAIL_DEFAULT_SENDER', '') or '').strip()
-    use_ssl = os.environ.get('MAIL_USE_SSL', '').lower() in ('1', 'true', 'yes')
-    smtp_timeout_sec = float(os.environ.get('MAIL_TIMEOUT_SECONDS', '8'))
-
-    msg = EmailMessage()
-    msg['Subject'] = 'Your SQ Impact verification code'
-    msg['From'] = sender
-    msg['To'] = to_addr
-    msg.set_content(
-        f'Your verification code is: {code}\n\n'
-        f'This code expires in 15 minutes. If you did not sign up, you can ignore this email.\n'
-    )
-
-    if _mail_settings_ready():
-        try:
-            if use_ssl:
-                with smtplib.SMTP_SSL(server, port, timeout=smtp_timeout_sec) as smtp:
-                    smtp.login(user, password)
-                    smtp.send_message(msg)
-            else:
-                with smtplib.SMTP(server, port, timeout=smtp_timeout_sec) as smtp:
-                    smtp.starttls()
-                    smtp.login(user, password)
-                    smtp.send_message(msg)
-            return
-        except Exception as smtp_err:
-            if resend_err is not None:
-                raise RuntimeError(
-                    'Email delivery failed via both Resend and SMTP. '
-                    f'Resend error: {resend_err}. SMTP error: {smtp_err}'
-                ) from smtp_err
-            raise RuntimeError(f'Email delivery failed via SMTP: {smtp_err}') from smtp_err
-
-    if resend_err is not None:
-        raise RuntimeError(
-            'Email delivery failed via Resend and SMTP is not configured. '
-            f'Resend error: {resend_err}'
-        )
-    raise RuntimeError('Email delivery is not configured for either Resend or SMTP.')
+    if not _mail_settings_ready():
+        raise RuntimeError('Email delivery is not configured (MAIL_* env vars).')
+    _send_smtp_email(subject, text, to_addr, html)
 
 
 def _send_plain_email(subject: str, body: str, to_addr: str) -> None:
-    server = (os.environ.get('MAIL_SERVER', '') or '').strip()
-    port = int(os.environ.get('MAIL_PORT', '587'))
-    user = (os.environ.get('MAIL_USERNAME', '') or '').strip()
-    password = (os.environ.get('MAIL_PASSWORD', '') or '').strip()
-    sender = (os.environ.get('MAIL_DEFAULT_SENDER', '') or '').strip()
-    use_ssl = os.environ.get('MAIL_USE_SSL', '').lower() in ('1', 'true', 'yes')
-    timeout_sec = float(os.environ.get('MAIL_TIMEOUT_SECONDS', '8'))
-    if not (server and sender and user and password):
-        raise RuntimeError('SMTP notification settings unavailable')
-    msg = EmailMessage()
-    msg['Subject'] = subject
-    msg['From'] = sender
-    msg['To'] = to_addr
-    msg.set_content(body)
-    if use_ssl:
-        with smtplib.SMTP_SSL(server, port, timeout=timeout_sec) as smtp:
-            smtp.login(user, password)
-            smtp.send_message(msg)
-    else:
-        with smtplib.SMTP(server, port, timeout=timeout_sec) as smtp:
-            smtp.starttls()
-            smtp.login(user, password)
-            smtp.send_message(msg)
+    _send_smtp_email(subject, body, to_addr)
 
 
 DEFAULT_REGISTRATION_NOTIFY_EMAIL = 'hamzamehboob777@gmail.com'
 
 
 def _send_notification_email(subject: str, text: str, to_addr: str, html: str | None = None) -> None:
-    """Send admin/ops notification via Resend when configured, otherwise SMTP."""
-    resend_err = None
-    if _resend_settings_ready():
-        try:
-            _send_email_via_resend(to_addr, subject, text, html)
-            return
-        except Exception as e:
-            resend_err = e
-
-    if _mail_settings_ready():
-        try:
-            _send_plain_email(subject, text, to_addr)
-            return
-        except Exception as smtp_err:
-            if resend_err is not None:
-                raise RuntimeError(
-                    f'Notification email failed via both Resend and SMTP. '
-                    f'Resend error: {resend_err}. SMTP error: {smtp_err}'
-                ) from smtp_err
-            raise RuntimeError(f'Notification email failed via SMTP: {smtp_err}') from smtp_err
-
-    if resend_err is not None:
-        raise RuntimeError(
-            'Notification email failed via Resend and SMTP is not configured. '
-            f'Resend error: {resend_err}'
-        )
-    raise RuntimeError('Notification email is not configured for either Resend or SMTP.')
+    """Send admin/ops notification via Gmail/SMTP (MAIL_* env vars)."""
+    if not _mail_settings_ready():
+        raise RuntimeError('Notification email is not configured (MAIL_* env vars).')
+    _send_smtp_email(subject, text, to_addr, html)
 
 
 def _registration_notification_label(registration_type: str) -> str:
@@ -584,7 +539,7 @@ def _issue_and_send_verification(email: str) -> tuple[str | None, str | None]:
     if _dev_return_code_enabled():
         print(f'DEV verification code for {email}: {code}', file=sys.stderr)
         return code, None
-    if _resend_settings_ready() or _mail_settings_ready():
+    if _mail_settings_ready():
         try:
             send_verification_email(email, code)
         except Exception as e:
