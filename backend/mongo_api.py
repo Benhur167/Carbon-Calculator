@@ -602,7 +602,7 @@ def _send_plain_email(subject: str, body: str, to_addr: str) -> None:
     _send_email(subject, body, to_addr)
 
 
-DEFAULT_REGISTRATION_NOTIFY_EMAIL = 'hamzamehboob777@gmail.com'
+DEFAULT_REGISTRATION_NOTIFY_EMAIL = 'info@sustainquality.co.uk'
 
 
 def _send_notification_email(subject: str, text: str, to_addr: str, html: str | None = None) -> None:
