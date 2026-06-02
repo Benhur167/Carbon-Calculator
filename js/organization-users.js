@@ -50,6 +50,7 @@ async function handleAddUser(e) {
     const payload = {
         full_name: (document.getElementById('newFullName')?.value || '').trim(),
         email: (document.getElementById('newEmail')?.value || '').trim(),
+        phone: (document.getElementById('newPhone')?.value || '').trim(),
         username: (document.getElementById('newUsername')?.value || '').trim(),
         password: document.getElementById('newPassword')?.value || '',
         confirm_password: document.getElementById('newConfirmPassword')?.value || '',
@@ -101,6 +102,7 @@ function rowHtml(user) {
     const username = user.username || '';
     const name = user.full_name || '';
     const email = user.email || '-';
+    const phone = user.phone || '-';
     const role = user.is_org_admin ? 'Organization admin' : 'User';
     const actions = user.is_org_admin
         ? '<span style="color: var(--text-secondary);">Admin account</span>'
@@ -111,6 +113,7 @@ function rowHtml(user) {
         <td>${username}</td>
         <td>${name}</td>
         <td>${email}</td>
+        <td>${phone}</td>
         <td>${role}</td>
         <td>${actions}</td>
     </tr>`;
@@ -139,7 +142,7 @@ async function loadUsers() {
         if (!body) return;
         if (!users.length) {
             body.innerHTML =
-                '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">No users found.</td></tr>';
+                '<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">No users found.</td></tr>';
             return;
         }
         body.innerHTML = users.map(rowHtml).join('');
@@ -158,6 +161,8 @@ async function editUser(username) {
     if (newFullName === null) return;
     const newEmail = prompt('Email (leave empty to clear, keep current if unchanged):');
     if (newEmail === null) return;
+    const newPhone = prompt('Phone (leave empty to clear, keep current if unchanged):');
+    if (newPhone === null) return;
     const newUsername = prompt('Username (leave empty to keep current):');
     if (newUsername === null) return;
     const newPassword = prompt('New password (leave empty to keep current):');
@@ -166,6 +171,7 @@ async function editUser(username) {
     const payload = {};
     if (newFullName !== '') payload.full_name = newFullName;
     if (newEmail !== '') payload.email = newEmail;
+    if (newPhone !== '') payload.phone = newPhone;
     if (newUsername !== '') payload.username = newUsername;
     if (newPassword !== '') {
         const confirm = prompt('Confirm new password:');

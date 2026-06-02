@@ -266,6 +266,11 @@ def _normalize_username(username: str | None) -> str:
     return (username or '').strip().lower()
 
 
+def _normalize_phone(phone: str | None) -> str | None:
+    value = (phone or '').strip()
+    return value or None
+
+
 def _is_valid_username(username: str) -> bool:
     return bool(re.match(r'^[a-z0-9._-]{3,32}$', username or ''))
 
@@ -626,6 +631,7 @@ def notify_sustain_quality_new_registration(
     full_name: str | None,
     *,
     username: str | None = None,
+    phone: str | None = None,
     registration_type: str = 'organization_signup',
     added_by: str | None = None,
 ) -> bool:
@@ -643,6 +649,7 @@ def notify_sustain_quality_new_registration(
         ('Registration type', label),
         ('Email', email or 'N/A'),
         ('Full name', full_name or 'N/A'),
+        ('Phone', phone or 'N/A'),
         ('Username', username or 'N/A'),
         ('Organization', organization_name or 'N/A'),
         ('Registered at (UTC)', timestamp),
@@ -1110,6 +1117,8 @@ def signup():
         })
         org_id = str(insert_res.inserted_id)
 
+    phone = _normalize_phone(data.get('phone'))
+
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
     now = utc_now()
     users_col.insert_one({
@@ -1117,6 +1126,7 @@ def signup():
         "username": username or em.split('@')[0],
         "password": hashed_password,
         "full_name": data.get('full_name'),
+        "phone": phone,
         "organization_id": org_id,
         "organization_name": company_name,
         "is_org_admin": True,
@@ -1130,6 +1140,7 @@ def signup():
         company_name,
         data.get('full_name'),
         username=username or em.split('@')[0],
+        phone=phone,
         registration_type='organization_signup',
     )
 
@@ -1220,6 +1231,7 @@ def org_users():
             "email": 1,
             "username": 1,
             "full_name": 1,
+            "phone": 1,
             "organization_id": 1,
             "organization_name": 1,
             "is_org_admin": 1,
@@ -1233,6 +1245,7 @@ def org_users():
     confirm_password = payload.get('confirm_password')
     full_name = payload.get('full_name')
     email = _normalize_email(payload.get('email'))
+    phone = _normalize_phone(payload.get('phone'))
 
     if not username or not _is_valid_username(username):
         return jsonify({"msg": "Username must be 3-32 chars (a-z, 0-9, ., _, -)"}), 400
@@ -1254,6 +1267,7 @@ def org_users():
         "username": username,
         "password": hashed_password,
         "full_name": full_name,
+        "phone": phone,
         "organization_id": current_user.get("organization_id"),
         "organization_name": current_user.get("organization_name"),
         "is_org_admin": False,
@@ -1267,6 +1281,7 @@ def org_users():
         current_user.get("organization_name"),
         full_name,
         username=username,
+        phone=phone,
         registration_type='org_user_added',
         added_by=current_user.get('email') or current_user.get('username'),
     )
@@ -1277,6 +1292,7 @@ def org_users():
             "username": username,
             "email": email or None,
             "full_name": full_name,
+            "phone": phone,
             "organization_id": current_user.get("organization_id"),
             "organization_name": current_user.get("organization_name"),
             "is_org_admin": False,
@@ -1317,6 +1333,9 @@ def org_user_update_delete(username: str):
     if "full_name" in payload:
         updates["full_name"] = (payload.get("full_name") or '').strip() or None
 
+    if "phone" in payload:
+        updates["phone"] = _normalize_phone(payload.get("phone"))
+
     if "email" in payload:
         new_email = _normalize_email(payload.get("email"))
         if new_email:
@@ -1356,6 +1375,7 @@ def org_user_update_delete(username: str):
         "email": 1,
         "username": 1,
         "full_name": 1,
+        "phone": 1,
         "organization_id": 1,
         "organization_name": 1,
         "is_org_admin": 1,

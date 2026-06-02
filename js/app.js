@@ -726,6 +726,7 @@ document.getElementById('signupForm')?.addEventListener('submit', async function
     
     const full_name = document.getElementById('signupName').value;
     const email = document.getElementById('signupEmail').value;
+    const phone = (document.getElementById('signupPhone')?.value || '').trim();
     const company_name = document.getElementById('signupCompany').value;
     const password = document.getElementById('signupPassword').value;
     const confirm_password = document.getElementById('signupConfirmPassword').value;
@@ -746,7 +747,8 @@ document.getElementById('signupForm')?.addEventListener('submit', async function
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 full_name, 
-                email, 
+                email,
+                phone: phone || undefined,
                 company_name, 
                 password, 
                 confirm_password 

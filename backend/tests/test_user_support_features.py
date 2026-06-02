@@ -29,10 +29,35 @@ def test_registration_notification_success(monkeypatch):
         'OrgX',
         'User X',
         username='userx',
+        phone='+44 7700 900000',
         registration_type='organization_signup',
     )
     assert ok is True
     assert sent['count'] == 1
+
+
+def test_registration_notification_includes_phone(monkeypatch):
+    monkeypatch.setenv('SUSTAIN_QUALITY_NOTIFY_EMAIL', 'ops@example.com')
+
+    captured = {'text': ''}
+
+    def fake_send(subject, text, to_addr, html=None):
+        captured['text'] = text
+
+    monkeypatch.setattr(api, '_send_notification_email', fake_send)
+    api.notify_sustain_quality_new_registration(
+        'test@example.com',
+        'OrgX',
+        'User X',
+        phone='+44 7700 900000',
+    )
+    assert 'Phone: +44 7700 900000' in captured['text']
+
+
+def test_normalize_phone():
+    assert api._normalize_phone('  +44 123  ') == '+44 123'
+    assert api._normalize_phone('') is None
+    assert api._normalize_phone(None) is None
 
 
 def test_registration_notification_failure_is_non_blocking(monkeypatch):
