@@ -1418,6 +1418,15 @@ body {
     margin-top: 16px;
 }
 
+.month-input.fy-period-month {
+    background: rgba(250, 204, 21, 0.12);
+    border-color: rgba(250, 204, 21, 0.45);
+}
+
+.month-input.fy-period-month--out {
+    opacity: 0.45;
+}
+
 .category-summary strong {
     color: var(--primary-color);
     font-size: 24px;

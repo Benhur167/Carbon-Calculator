@@ -1586,7 +1586,7 @@ function addDataRow(category) {
         <td>${emissionSelectHtml}</td>
         <td><input type="text" placeholder="${placeholder}"></td>
         <td>${getUnitSelectHtml(category, defaultUnit, defaultEmissionKey)}</td>
-        <td><input type="number" class="row-display-year" value="${reportYear}" min="2020" max="2030" title="Display only — does not change emission factors or totals"></td>
+        <td><input type="number" class="row-display-year" value="${reportYear}" min="2019" max="2035" title="Calendar year for this row (Apr–Dec or Jan–Mar in a UK financial year)"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="2"></td>
@@ -1616,7 +1616,13 @@ function addDataRow(category) {
         );
     }
     attachRowListeners(row);
+    row.querySelectorAll('.month-input').forEach((input, slot) => {
+        if (slot > 11) return;
+        input.dataset.month = String(slot);
+    });
 }
+
+window.addDataRow = addDataRow;
 
 function getPreferredUnitForCategory(category, emissionKey) {
     const unitCategory =
@@ -1893,7 +1899,7 @@ function deleteRow(button) {
 function attachRowListeners(row) {
     const monthInputs = row.querySelectorAll('.month-input');
     const descriptionInput = row.querySelector('input[type="text"]');
-    const yearInput = row.querySelector('input[type="number"]:not(.month-input)');
+    const yearInput = row.querySelector('.row-display-year');
     const emissionSelect = row.querySelector('.emission-select');
     const unitSelect = row.querySelector('.row-unit-select');
     
@@ -1952,20 +1958,15 @@ function attachRowListeners(row) {
     bindRowUnitSelect(row, unitSelect);
     
     if (yearInput) {
-        yearInput.addEventListener('change', function() {
+        const onYearChange = () => {
             saveData();
-            // Force dashboard update when year changes
+            window.carbonCalc?.refreshFinancialYearMonthHighlights?.();
             if (window.updateDashboard) {
                 setTimeout(window.updateDashboard, 200);
             }
-        });
-        yearInput.addEventListener('blur', function() {
-            saveData();
-            // Force dashboard update when year changes
-            if (window.updateDashboard) {
-                setTimeout(window.updateDashboard, 200);
-            }
-        });
+        };
+        yearInput.addEventListener('change', onYearChange);
+        yearInput.addEventListener('blur', onYearChange);
     }
 }
 
@@ -2081,6 +2082,16 @@ function loadSiteData(siteId) {
     }
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('data-tab') || 'water';
     updateTabQuestionUI(activeTab);
+
+    if (window.carbonCalc?.refreshDataTableMonthHeaders) {
+        window.carbonCalc.refreshDataTableMonthHeaders();
+    }
+    if (window.carbonCalc?.getReportingPeriodType?.() === 'financial_uk') {
+        window.carbonCalc.ensureFinancialYearRows?.();
+    }
+    if (window.carbonCalc?.refreshFinancialYearMonthHighlights) {
+        window.carbonCalc.refreshFinancialYearMonthHighlights();
+    }
     
     // Recalculate totals after loading
     setTimeout(() => {
@@ -2158,10 +2169,14 @@ function loadRowData(row, data) {
         }
     }
     
-    (data.months || []).forEach((value, index) => {
-        const monthInput = row.querySelector(`.month-input[data-month="${index}"]`);
-        if (monthInput) monthInput.value = value || '';
-    });
+    if (window.carbonCalc?.setRowMonthsFromCalendarMonth) {
+        window.carbonCalc.setRowMonthsFromCalendarMonth(row, data.months || []);
+    } else {
+        (data.months || []).forEach((value, index) => {
+            const monthInput = row.querySelector(`.month-input[data-month="${index}"]`);
+            if (monthInput) monthInput.value = value || '';
+        });
+    }
     
     if (window.carbonCalc && window.carbonCalc.calculateRowTotal) {
         window.carbonCalc.calculateRowTotal(row);
@@ -2214,9 +2229,13 @@ function saveCurrentSiteData() {
                           )
                 };
                 
-                monthInputs.forEach(input => {
-                    rowData.months.push(parseFloat(input.value) || 0);
-                });
+                if (window.carbonCalc?.getRowMonthsByCalendarMonth) {
+                    rowData.months = window.carbonCalc.getRowMonthsByCalendarMonth(row);
+                } else {
+                    monthInputs.forEach((input) => {
+                        rowData.months.push(parseFloat(input.value) || 0);
+                    });
+                }
                 
                 site.data[category].push(rowData);
             });
@@ -3184,6 +3203,9 @@ function toggleLanguage() {
     appState.currentLanguage = appState.currentLanguage === 'en' ? 'pt' : 'en';
     localStorage.setItem('language', appState.currentLanguage);
     updateLanguage();
+    if (window.carbonCalc?.refreshDataTableMonthHeaders) {
+        window.carbonCalc.refreshDataTableMonthHeaders();
+    }
     if (document.querySelector('[data-content="dashboard"]')?.classList.contains('active') && typeof updateDashboard === 'function') {
         updateDashboard();
     }
