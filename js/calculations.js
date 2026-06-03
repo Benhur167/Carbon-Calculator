@@ -1000,14 +1000,53 @@ function readRowMonthsFromDom(row) {
     return out;
 }
 
+/** Persisted calendar months for save/API (Jan=0 … Dec=11 per row year). */
+function getCanonicalCalendarMonths(category, year) {
+    const months = getCalendarMonthsFromSnapshot(category, year);
+    return months ? cloneMonthArray(months) : null;
+}
+
 function getRowMonthsByCalendarMonth(row) {
-    if (getReportingPeriodType() === 'financial_uk' && calendarMonthSnapshot) {
-        const category = resolveCategoryFromTableId(row.closest('table')?.id);
-        const year = getRowYear(row);
-        const fromSnap = getCalendarMonthsFromSnapshot(category, year);
-        if (fromSnap) return fromSnap;
+    const category = resolveCategoryFromTableId(row.closest('table')?.id);
+    const year = getRowYear(row);
+    if (category && year != null && calendarMonthSnapshot) {
+        const fromCanon = getCanonicalCalendarMonths(category, year);
+        if (fromCanon) return fromCanon;
     }
     return readRowMonthsFromDom(row);
+}
+
+function isFinancialYearAutoAddedRow(category, year) {
+    const y = Number(year);
+    if (!Number.isFinite(y)) return false;
+    return fyAutoAddedYears.get(category)?.has(y) === true;
+}
+
+/** Update canonical store from DOM before save (calendar or financial view). */
+function syncCanonicalCalendarBeforeSave() {
+    if (getReportingPeriodType() === 'financial_uk') {
+        refreshCalendarSnapshotFromFinancialDom();
+    } else {
+        syncCanonicalCalendarFromDom();
+    }
+}
+
+function loadCanonicalCalendarFromSiteData(site) {
+    const snap = new Map();
+    getDataInputCategories().forEach((category) => {
+        const catMap = new Map();
+        const rows = site?.data?.[category];
+        if (Array.isArray(rows)) {
+            rows.forEach((row) => {
+                const y = parseInt(row.year, 10);
+                if (!Number.isFinite(y)) return;
+                catMap.set(y, cloneMonthArray(row.months || []));
+            });
+        }
+        snap.set(category, catMap);
+    });
+    calendarMonthSnapshot = snap;
+    return snap;
 }
 
 function setRowMonthsFromCalendarMonth(row, months) {
@@ -1064,11 +1103,9 @@ function refreshFinancialYearMonthHighlights() {
     });
 }
 
-/** Calendar months per category/year while UK FY view is active (persisted saves use this). */
+/** Canonical calendar months per category/year (saved to backend; FY is display-only). */
 let calendarMonthSnapshot = null;
-/** Snapshot taken at calendar→FY switch (used to restore calendar view). */
-let preFyCaptureSnapshot = null;
-/** category → Set of row years auto-added for UK FY (removed on switch back). */
+/** category → Set of row years auto-added for UK FY (removed on switch back, not saved). */
 let fyAutoAddedYears = new Map();
 
 function emptyMonthArray() {
@@ -1083,17 +1120,7 @@ function cloneMonthArray(months) {
     });
 }
 
-function cloneCalendarSnapshot(snap) {
-    const out = new Map();
-    snap.forEach((catMap, category) => {
-        const m = new Map();
-        catMap.forEach((months, year) => m.set(year, cloneMonthArray(months)));
-        out.set(category, m);
-    });
-    return out;
-}
-
-function captureCalendarMonthSnapshotFromDom() {
+function syncCanonicalCalendarFromDom() {
     const snap = new Map();
     getDataInputCategories().forEach((category) => {
         const table = document.getElementById(`${category}Table`);
@@ -1101,13 +1128,19 @@ function captureCalendarMonthSnapshotFromDom() {
         if (table) {
             table.querySelectorAll('.data-row').forEach((row) => {
                 const y = getRowYear(row);
-                if (y != null) catMap.set(y, cloneMonthArray(readRowMonthsFromDom(row)));
+                if (y == null || isFinancialYearAutoAddedRow(category, y)) return;
+                catMap.set(y, cloneMonthArray(readRowMonthsFromDom(row)));
             });
         }
         snap.set(category, catMap);
     });
     calendarMonthSnapshot = snap;
     return snap;
+}
+
+/** @deprecated alias */
+function captureCalendarMonthSnapshotFromDom() {
+    return syncCanonicalCalendarFromDom();
 }
 
 /** Add row (minYear − 1) when missing so Jan–Mar of minYear can sit on the prior FY row. */
@@ -1204,7 +1237,14 @@ function refreshCalendarSnapshotFromFinancialDom() {
                 cal[1] = old[1];
                 cal[2] = old[2];
             }
-            catMap.set(y, cal);
+            if (!isFinancialYearAutoAddedRow(category, y)) {
+                catMap.set(y, cal);
+            }
+        });
+        priorCat?.forEach((months, y) => {
+            if (!catMap.has(y) && !isFinancialYearAutoAddedRow(category, y)) {
+                catMap.set(y, cloneMonthArray(months));
+            }
         });
         snap.set(category, catMap);
     });
@@ -1231,10 +1271,11 @@ function applyFinancialYearMonthShift() {
 }
 
 function restoreCalendarMonthViewFromSnapshot() {
-    const snap = preFyCaptureSnapshot || calendarMonthSnapshot;
-    if (!snap) return;
-
+    refreshCalendarSnapshotFromFinancialDom();
     removeFinancialYearAutoAddedRows();
+
+    const snap = calendarMonthSnapshot;
+    if (!snap) return;
 
     getDataInputCategories().forEach((category) => {
         const table = document.getElementById(`${category}Table`);
@@ -1242,23 +1283,21 @@ function restoreCalendarMonthViewFromSnapshot() {
         const catMap = snap.get(category) || new Map();
         table.querySelectorAll('.data-row').forEach((row) => {
             const y = getRowYear(row);
-            if (y == null) return;
+            if (y == null || isFinancialYearAutoAddedRow(category, y)) return;
             setRowMonthsFromCalendarMonth(row, catMap.get(y) || emptyMonthArray());
         });
     });
-    preFyCaptureSnapshot = null;
-    calendarMonthSnapshot = null;
 }
 
 function syncFinancialYearViewAfterDataLoad() {
-    calendarMonthSnapshot = null;
     if (getReportingPeriodType() !== 'financial_uk') {
         refreshFinancialYearMonthHighlights();
         return;
     }
-    const snap = captureCalendarMonthSnapshotFromDom();
-    if (!preFyCaptureSnapshot) preFyCaptureSnapshot = cloneCalendarSnapshot(snap);
-    ensurePriorFinancialYearRows(snap);
+    if (!calendarMonthSnapshot) {
+        syncCanonicalCalendarFromDom();
+    }
+    ensurePriorFinancialYearRows(calendarMonthSnapshot);
     applyFinancialYearMonthShift();
     refreshFinancialYearMonthHighlights();
 }
@@ -1504,9 +1543,8 @@ function setReportingPeriodType(type) {
         restoreCalendarMonthViewFromSnapshot();
     } else if (prevType === 'calendar' && nextType === 'financial_uk') {
         fyAutoAddedYears = new Map();
-        const snap = captureCalendarMonthSnapshotFromDom();
-        preFyCaptureSnapshot = cloneCalendarSnapshot(snap);
-        ensurePriorFinancialYearRows(snap);
+        syncCanonicalCalendarFromDom();
+        ensurePriorFinancialYearRows(calendarMonthSnapshot);
     }
 
     currentReportingPeriodType = nextType;
@@ -2278,6 +2316,11 @@ window.carbonCalc = {
     setRowMonthsFromCalendarMonth,
     isMonthInReportingPeriod,
     syncFinancialYearViewAfterDataLoad,
+    loadCanonicalCalendarFromSiteData,
+    syncCanonicalCalendarBeforeSave,
+    syncCanonicalCalendarFromDom,
+    getCanonicalCalendarMonths,
+    isFinancialYearAutoAddedRow,
     refreshCalendarSnapshotFromFinancialDom,
     refreshFinancialYearMonthHighlights,
     hydrateReportingPeriodFromPrefs,

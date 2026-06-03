@@ -1905,6 +1905,9 @@ function attachRowListeners(row) {
     
     // Save on any input change
     const saveData = () => {
+        if (window.carbonCalc?.syncCanonicalCalendarBeforeSave) {
+            window.carbonCalc.syncCanonicalCalendarBeforeSave();
+        }
         if (window.carbonCalc && window.carbonCalc.calculateRowTotal) {
             window.carbonCalc.calculateRowTotal(row);
             if (window.carbonCalc.calculateCategoryTotal) {
@@ -2083,6 +2086,9 @@ function loadSiteData(siteId) {
     const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('data-tab') || 'water';
     updateTabQuestionUI(activeTab);
 
+    if (window.carbonCalc?.loadCanonicalCalendarFromSiteData) {
+        window.carbonCalc.loadCanonicalCalendarFromSiteData(site);
+    }
     if (window.carbonCalc?.refreshDataTableMonthHeaders) {
         window.carbonCalc.refreshDataTableMonthHeaders();
     }
@@ -2119,13 +2125,13 @@ function migrateWasteEmissionType(emissionType) {
 }
 
 function loadRowData(row, data) {
-    const inputs = row.querySelectorAll('input');
+    const descriptionInput = row.querySelector('input[type="text"]');
+    const yearInput = row.querySelector('.row-display-year');
     const emissionSelect = row.querySelector('.emission-select');
 
-    // Inputs: [description, year, months...]
-    if (inputs[0]) inputs[0].value = data.description || '';
-    if (inputs[1]) {
-        inputs[1].value =
+    if (descriptionInput) descriptionInput.value = data.description || '';
+    if (yearInput) {
+        yearInput.value =
             data.year ||
             window.carbonCalc?.getReportingYear?.() ||
             new Date().getFullYear();
@@ -2202,14 +2208,11 @@ function saveCurrentSiteData() {
         site.companyName = nameInput.value || '';
     }
     
-    if (
-        window.carbonCalc?.getReportingPeriodType?.() === 'financial_uk' &&
-        window.carbonCalc?.refreshCalendarSnapshotFromFinancialDom
-    ) {
-        window.carbonCalc.refreshCalendarSnapshotFromFinancialDom();
+    if (window.carbonCalc?.syncCanonicalCalendarBeforeSave) {
+        window.carbonCalc.syncCanonicalCalendarBeforeSave();
     }
 
-    // Save data for each category
+    // Save data for each category (always calendar Jan–Dec; FY rows are display-only)
     getDataInputCategoryList().forEach(category => {
         const table = document.getElementById(`${category}Table`);
         if (table) {
@@ -2217,14 +2220,24 @@ function saveCurrentSiteData() {
             site.data[category] = [];
             
             rows.forEach(row => {
-                const inputs = row.querySelectorAll('input');
-                const monthInputs = row.querySelectorAll('.month-input');
+                const rowYear =
+                    window.carbonCalc?.getRowYear?.(row) ??
+                    parseInt(row.querySelector('.row-display-year')?.value, 10);
+                if (
+                    window.carbonCalc?.isFinancialYearAutoAddedRow?.(category, rowYear)
+                ) {
+                    return;
+                }
+
                 const emissionSelect = row.querySelector('.emission-select');
                 const unitSelect = row.querySelector('.row-unit-select');
+                const monthInputs = row.querySelectorAll('.month-input');
                 
                 const rowData = {
-                    description: inputs[0]?.value || '',
-                    year: parseInt(inputs[1]?.value) || 2025,
+                    description: row.querySelector('input[type="text"]')?.value || '',
+                    year: Number.isFinite(rowYear)
+                        ? rowYear
+                        : window.carbonCalc?.getReportingYear?.() || 2025,
                     months: [],
                     emissionType: emissionSelect ? emissionSelect.value : null,
                     unit: unitSelect
@@ -2235,7 +2248,13 @@ function saveCurrentSiteData() {
                           )
                 };
                 
-                if (window.carbonCalc?.getRowMonthsByCalendarMonth) {
+                if (window.carbonCalc?.getCanonicalCalendarMonths) {
+                    rowData.months =
+                        window.carbonCalc.getCanonicalCalendarMonths(category, rowData.year) ||
+                        (window.carbonCalc.getRowMonthsByCalendarMonth
+                            ? window.carbonCalc.getRowMonthsByCalendarMonth(row)
+                            : []);
+                } else if (window.carbonCalc?.getRowMonthsByCalendarMonth) {
                     rowData.months = window.carbonCalc.getRowMonthsByCalendarMonth(row);
                 } else {
                     monthInputs.forEach((input) => {
