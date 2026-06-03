@@ -117,6 +117,9 @@ function getChartConfig(chartId) {
         borderColor: per.borderColor || per.primaryColor || prefs.primaryColor,
         fillColor: per.fillColor || per.secondaryColor || prefs.secondaryColor,
         colors: Array.isArray(per.colors) ? per.colors : null,
+        sliceKeys: Array.isArray(per.sliceKeys) ? per.sliceKeys : null,
+        categoryColors:
+            per.categoryColors && typeof per.categoryColors === 'object' ? per.categoryColors : null,
         datasetColors: per.datasetColors && typeof per.datasetColors === 'object' ? per.datasetColors : null,
     };
 }
@@ -184,16 +187,43 @@ function getMonthLabels() {
         : ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 }
 
-let sourceTrendGranularity = 'monthly';
+let emissionsChartGranularity = 'monthly';
 
-function bindSourceTrendGranularityControl() {
-    const sel = document.getElementById('sourceTrendGranularity');
-    if (!sel || sel.dataset.bound === '1') return;
-    sel.dataset.bound = '1';
-    sel.addEventListener('change', () => {
-        sourceTrendGranularity = sel.value === 'yearly' ? 'yearly' : 'monthly';
-        updateSourceTrendChart();
+function bindEmissionsGranularitySelects() {
+    document.querySelectorAll('.emissions-granularity-select').forEach((sel) => {
+        if (sel.dataset.bound === '1') return;
+        sel.dataset.bound = '1';
+        sel.value = emissionsChartGranularity;
+        sel.addEventListener('change', () => {
+            emissionsChartGranularity = sel.value === 'yearly' ? 'yearly' : 'monthly';
+            document.querySelectorAll('.emissions-granularity-select').forEach((other) => {
+                other.value = emissionsChartGranularity;
+            });
+            updateCharts();
+        });
     });
+}
+
+function isEmissionsYearlyView() {
+    return emissionsChartGranularity === 'yearly';
+}
+
+function getCategoryChartColor(category, index) {
+    const cfg = getChartConfig('pieChart');
+    const cats = getEmissionCategories();
+    const palette = defaultPaletteColors(cats.length);
+    const catIndex = cats.indexOf(category);
+    const fallback = palette[catIndex >= 0 ? catIndex : index];
+
+    if (cfg.categoryColors?.[category]) return cfg.categoryColors[category];
+    if (cfg.sliceKeys?.length && cfg.colors?.length) {
+        const storedIdx = cfg.sliceKeys.indexOf(category);
+        if (storedIdx >= 0 && cfg.colors[storedIdx]) return cfg.colors[storedIdx];
+    }
+    if (cfg.colors?.length && !cfg.sliceKeys?.length && catIndex >= 0 && cfg.colors[catIndex]) {
+        return cfg.colors[catIndex];
+    }
+    return fallback;
 }
 
 function chartModalTitle(chartId) {
@@ -355,6 +385,11 @@ function applyChartStylePrefs() {
             const slices = document.querySelectorAll('#chartStyleModal [data-pie-slice]');
             entry.colors = Array.from(slices).map((el) => el.value);
             entry.sliceKeys = Array.from(slices).map((el) => el.getAttribute('data-pie-slice'));
+            entry.categoryColors = {};
+            slices.forEach((el) => {
+                const key = el.getAttribute('data-pie-slice');
+                if (key) entry.categoryColors[key] = el.value;
+            });
         } else if (chartId === 'sourceTrendChart') {
             entry.datasetColors = {};
             document.querySelectorAll('#chartStyleModal [data-dataset-cat]').forEach((el) => {
@@ -394,17 +429,8 @@ function resetChartStyleDefaults() {
     updateDashboard();
 }
 
-function resolvePieColors(labels, keys) {
-    const cfg = getChartConfig('pieChart');
-    const defaults = defaultPaletteColors(labels.length);
-    if (!cfg.colors?.length) return defaults;
-    if (cfg.sliceKeys?.length) {
-        return keys.map((key, idx) => {
-            const storedIdx = cfg.sliceKeys.indexOf(key);
-            return storedIdx >= 0 ? cfg.colors[storedIdx] : defaults[idx];
-        });
-    }
-    return cfg.colors.slice(0, labels.length).concat(defaults).slice(0, labels.length);
+function resolvePieColors(keys) {
+    return keys.map((key, idx) => getCategoryChartColor(key, idx));
 }
 
 function chartLabelForUnit() {
@@ -568,6 +594,10 @@ function updateKPIs() {
 // ============================================
 
 function updateCharts() {
+    if (window.carbonCalc?.calculateAllTotals) {
+        window.carbonCalc.calculateAllTotals();
+    }
+    bindEmissionsGranularitySelects();
     ensureSourceTrendChartCards();
     updatePieChart();
     updateBarChart();
@@ -599,10 +629,27 @@ function updateAccountsCharts() {
 
 function updatePieChart() {
     const ct = _chartTheme();
-    const totals = window.carbonCalc.getCategoryTotals();
-    const keys = Object.keys(totals).filter((key) => (totals[key] || 0) > 0);
+    const isYearly = isEmissionsYearlyView();
+    const totals = isYearly
+        ? window.carbonCalc.getCategoryTotalsForYearRange(2020, 2025)
+        : window.carbonCalc.getCategoryTotalsFromInputs?.() || window.carbonCalc.getCategoryTotals();
+    const keys = getEmissionCategories().filter((key) => (totals[key] || 0) > 0);
     const labels = keys.map((key) => getCategoryDisplayName(key));
     const data = keys.map((key) => totals[key]);
+    const sliceColors = resolvePieColors(keys);
+
+    const pieTitle = document.getElementById('pieChartTitle');
+    if (pieTitle) {
+        const en = isYearly
+            ? 'Emissions by Category (2020–2025)'
+            : 'Emissions by Category';
+        const pt = isYearly
+            ? 'Emissões por Categoria (2020–2025)'
+            : 'Emissões por Categoria';
+        pieTitle.textContent = appState.currentLanguage === 'pt' ? pt : en;
+        pieTitle.setAttribute('data-en', en);
+        pieTitle.setAttribute('data-pt', pt);
+    }
 
     const ctx = document.getElementById('pieChart');
     if (!ctx) return;
@@ -627,7 +674,8 @@ function updatePieChart() {
             labels,
             datasets: [{
                 data,
-                backgroundColor: resolvePieColors(labels, keys),
+                backgroundColor: sliceColors,
+                hoverBackgroundColor: sliceColors,
                 borderWidth: 2,
                 borderColor: ct?.pieBorder || (appState.darkMode ? '#0F172A' : '#FFFFFF'),
             }],
@@ -769,8 +817,27 @@ function updateBarChart() {
 function updateLineChart() {
     const ct = _chartTheme();
     const lineCfg = getChartConfig('lineChart');
-    const monthlyData = window.carbonCalc.getMonthlyTotals();
+    const isYearly = isEmissionsYearlyView();
     const monthNames = getMonthLabels();
+    const yearLabels = getBarChartYearLabels();
+    const yearComparison = window.carbonCalc.getYearComparison();
+    const chartLabels = isYearly ? yearLabels : monthNames;
+    const chartValues = isYearly
+        ? yearLabels.map((y) => yearComparison[y] || 0)
+        : window.carbonCalc.getMonthlyTotals();
+
+    const lineTitle = document.getElementById('lineChartTitle');
+    if (lineTitle) {
+        const en = isYearly
+            ? 'Yearly Emissions Trend (2020–2025)'
+            : 'Monthly Emissions Trend (Total)';
+        const pt = isYearly
+            ? 'Tendência Anual de Emissões (2020–2025)'
+            : 'Tendência Mensal de Emissões (Total)';
+        lineTitle.textContent = appState.currentLanguage === 'pt' ? pt : en;
+        lineTitle.setAttribute('data-en', en);
+        lineTitle.setAttribute('data-pt', pt);
+    }
 
     const ctx = document.getElementById('lineChart');
     if (!ctx) return;
@@ -781,12 +848,12 @@ function updateLineChart() {
     lineChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: monthNames,
+            labels: chartLabels,
             datasets: [{
                 label: appState.currentLanguage === 'en'
-                    ? `Monthly Emissions (${chartLabelForUnit()})`
-                    : `Emissões Mensais (${chartLabelForUnit()})`,
-                data: monthlyData.map(convertTonnesToDisplayValue),
+                    ? `${isYearly ? 'Yearly' : 'Monthly'} Emissions (${chartLabelForUnit()})`
+                    : `Emissões ${isYearly ? 'Anuais' : 'Mensais'} (${chartLabelForUnit()})`,
+                data: chartValues.map(convertTonnesToDisplayValue),
                 borderColor: border,
                 backgroundColor: hexToRgba(lineCfg.fillColor || border, 0.12),
                 borderWidth: 3,
@@ -819,17 +886,21 @@ function updateLineChart() {
 
 function updateSourceTrendChart() {
     if (!window.carbonCalc?.getMonthlyTotalsByCategory) return;
-    bindSourceTrendGranularityControl();
+    bindEmissionsGranularitySelects();
     const ct = _chartTheme();
     const cfg = getChartConfig('sourceTrendChart');
     const chartEl = document.getElementById('sourceTrendChart');
     if (!chartEl) return;
 
     const titleEl = document.getElementById('sourceTrendChartTitle');
-    const isYearly = sourceTrendGranularity === 'yearly';
+    const isYearly = isEmissionsYearlyView();
     if (titleEl) {
-        const en = isYearly ? 'Yearly Trend by Source (All)' : 'Monthly Trend by Source (All)';
-        const pt = isYearly ? 'Tendência anual por fonte (todas)' : 'Tendência mensal por fonte (todas)';
+        const en = isYearly
+            ? 'Yearly Trend by Source (2020–2025)'
+            : 'Monthly Trend by Source (All)';
+        const pt = isYearly
+            ? 'Tendência anual por fonte (2020–2025)'
+            : 'Tendência mensal por fonte (todas)';
         titleEl.textContent = appState.currentLanguage === 'pt' ? pt : en;
         titleEl.setAttribute('data-en', en);
         titleEl.setAttribute('data-pt', pt);
@@ -839,11 +910,7 @@ function updateSourceTrendChart() {
     let dataByCategory;
     if (isYearly && window.carbonCalc.getYearlyTotalsByCategory) {
         dataByCategory = window.carbonCalc.getYearlyTotalsByCategory();
-        const yearSet = new Set();
-        Object.values(dataByCategory).forEach((byYear) => {
-            Object.keys(byYear || {}).forEach((y) => yearSet.add(y));
-        });
-        labels = Array.from(yearSet).sort();
+        labels = getBarChartYearLabels();
     } else {
         dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory();
         labels = getMonthLabels();
@@ -913,8 +980,13 @@ function ensureSourceTrendChartCards() {
         const widgetId = `source-trend-${category}`;
         const chartId = `sourceTrend_${category}`;
         let card = grid.querySelector(`[data-widget="${widgetId}"]`);
-        const titleEn = `Monthly Emissions Trend — ${getCategoryDisplayName(category)}`;
-        const titlePt = `Tendência Mensal de Emissões — ${getCategoryDisplayName(category)}`;
+        const titleEnMonthly = `Monthly Emissions Trend — ${getCategoryDisplayName(category)}`;
+        const titlePtMonthly = `Tendência Mensal de Emissões — ${getCategoryDisplayName(category)}`;
+        const titleEnYearly = `Yearly Emissions Trend — ${getCategoryDisplayName(category)} (2020–2025)`;
+        const titlePtYearly = `Tendência Anual de Emissões — ${getCategoryDisplayName(category)} (2020–2025)`;
+        const isYearly = isEmissionsYearlyView();
+        const titleEn = isYearly ? titleEnYearly : titleEnMonthly;
+        const titlePt = isYearly ? titlePtYearly : titlePtMonthly;
 
         if (!card) {
             card = document.createElement('div');
@@ -923,9 +995,15 @@ function ensureSourceTrendChartCards() {
             card.innerHTML = `
                 <div class="chart-header">
                     <h3 data-en="${titleEn}" data-pt="${titlePt}">${titleEn}</h3>
-                    <button type="button" class="chart-style-btn" title="Customize chart colors and font">
-                        <i class="fas fa-palette"></i>
-                    </button>
+                    <div class="chart-header-actions">
+                        <select class="toolbar-control toolbar-select chart-granularity-select emissions-granularity-select" title="Monthly or yearly view">
+                            <option value="monthly" data-en="Monthly" data-pt="Mensal">Monthly</option>
+                            <option value="yearly" data-en="Yearly (2020–2025)" data-pt="Anual (2020–2025)">Yearly (2020–2025)</option>
+                        </select>
+                        <button type="button" class="chart-style-btn" title="Customize chart colors and font">
+                            <i class="fas fa-palette"></i>
+                        </button>
+                    </div>
                 </div>
                 <canvas id="sourceTrendChart_${category}"></canvas>
                 <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>
@@ -951,9 +1029,13 @@ function ensureSourceTrendChartCards() {
 function updateSourceTrendCharts() {
     if (!window.carbonCalc?.getMonthlyTotalsByCategory) return;
     ensureSourceTrendChartCards();
+    bindEmissionsGranularitySelects();
 
-    const dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory();
-    const labels = getMonthLabels();
+    const isYearly = isEmissionsYearlyView();
+    const dataByCategory = isYearly
+        ? window.carbonCalc.getYearlyTotalsByCategory()
+        : window.carbonCalc.getMonthlyTotalsByCategory();
+    const labels = isYearly ? getBarChartYearLabels() : getMonthLabels();
     const ct = _chartTheme();
     const categories = getEmissionCategories();
 
@@ -970,13 +1052,19 @@ function updateSourceTrendCharts() {
         const existing = sourceTrendChartInstances.get(category);
         if (existing) existing.destroy();
 
+        const seriesData = isYearly
+            ? labels.map((yr) =>
+                  convertTonnesToDisplayValue((dataByCategory[category] || {})[yr] || 0)
+              )
+            : (dataByCategory[category] || []).map(convertTonnesToDisplayValue);
+
         const instance = new Chart(canvas, {
             type: 'line',
             data: {
                 labels,
                 datasets: [{
                     label: getCategoryDisplayName(category),
-                    data: (dataByCategory[category] || []).map(convertTonnesToDisplayValue),
+                    data: seriesData,
                     borderColor: border,
                     backgroundColor: hexToRgba(cfg.fillColor || border, 0.12),
                     borderWidth: 2,

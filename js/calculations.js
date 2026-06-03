@@ -1406,21 +1406,76 @@ function calculateAllTotals() {
 // CATEGORY TOTALS
 // ============================================
 
+function getRowYear(row) {
+    const inputs = row?.querySelectorAll('input');
+    if (!inputs || inputs.length < 2) return null;
+    const yearInput = inputs[1];
+    if (!yearInput || yearInput.type !== 'number') return null;
+    const year = parseInt(yearInput.value, 10);
+    return Number.isFinite(year) ? year : null;
+}
+
+/** Sum category tCO₂e from month inputs (same engine as monthly breakdown). */
+function sumCategoryTonnesFromInputs(category, minYear, maxYear) {
+    const table = document.getElementById(`${category}Table`);
+    if (!table) return 0;
+    const unitCategory = resolveUnitCategory(category);
+    let total = 0;
+    table.querySelectorAll('.data-row').forEach((row) => {
+        if (!rowIncludedInReportingPeriod(row)) return;
+        const year = getRowYear(row);
+        if (minYear != null && (year == null || year < minYear)) return;
+        if (maxYear != null && (year == null || year > maxYear)) return;
+        const conversionFactor = getRowConversionFactor(row, `${category}Table`);
+        const rowUnit = row.querySelector('.row-unit-select')?.value || '';
+        row.querySelectorAll('.month-input').forEach((input) => {
+            const baseValue = toBaseUnitValue(
+                unitCategory,
+                rowUnit,
+                parseFloat(input.value) || 0
+            );
+            total += (baseValue * conversionFactor) / 1000;
+        });
+    });
+    return total;
+}
+
+function getCategoryTotalsFromInputs() {
+    const totals = {};
+    getDataInputCategories().forEach((category) => {
+        totals[category] = sumCategoryTonnesFromInputs(category, null, null);
+    });
+    return totals;
+}
+
+function getCategoryTotalsForYearRange(minYear, maxYear) {
+    const totals = {};
+    getDataInputCategories().forEach((category) => {
+        totals[category] = sumCategoryTonnesFromInputs(category, minYear, maxYear);
+    });
+    return totals;
+}
+
 function getCategoryTotals() {
     const totals = {};
     getDataInputCategories().forEach((category) => {
         totals[category] = 0;
     });
 
-    Object.keys(totals).forEach(category => {
+    Object.keys(totals).forEach((category) => {
         const table = document.getElementById(`${category}Table`);
         if (table) {
-            const rows = table.querySelectorAll('.data-row');
-            rows.forEach(row => {
+            table.querySelectorAll('.data-row').forEach((row) => {
                 if (!rowMatchesReportingYear(row)) return;
-                const value = Number(row.dataset.co2Tonnes || 0);
-                totals[category] += value;
+                totals[category] += Number(row.dataset.co2Tonnes || 0);
             });
+        }
+    });
+
+    const fromInputs = getCategoryTotalsFromInputs();
+    getDataInputCategories().forEach((category) => {
+        if ((totals[category] || 0) <= 0 && (fromInputs[category] || 0) > 0) {
+            totals[category] = fromInputs[category];
         }
     });
 
@@ -1483,11 +1538,14 @@ function getMonthlyTotalsByCategory() {
 function getYearlyTotalsByCategory() {
     const categories = getDataInputCategories();
     const result = {};
-    const periodType = getReportingPeriodType();
-    const startYear = getReportingYear();
+    const minYear = 2020;
+    const maxYear = 2025;
 
     categories.forEach((category) => {
         result[category] = {};
+        for (let y = minYear; y <= maxYear; y++) {
+            result[category][String(y)] = 0;
+        }
     });
 
     categories.forEach((category) => {
@@ -1496,6 +1554,8 @@ function getYearlyTotalsByCategory() {
         const unitCategory = resolveUnitCategory(category);
         table.querySelectorAll('.data-row').forEach((row) => {
             if (!rowIncludedInReportingPeriod(row)) return;
+            const year = getRowYear(row);
+            if (year == null || year < minYear || year > maxYear) return;
             const conversionFactor = getRowConversionFactor(row, `${category}Table`);
             const rowUnit = row.querySelector('.row-unit-select')?.value || '';
             let annualTonnes = 0;
@@ -1507,10 +1567,7 @@ function getYearlyTotalsByCategory() {
                 );
                 annualTonnes += (baseValue * conversionFactor) / 1000;
             });
-            const bucketKey =
-                periodType === 'financial_uk'
-                    ? `FY ${startYear}/${String(startYear + 1).slice(-2)}`
-                    : String(startYear);
+            const bucketKey = String(year);
             result[category][bucketKey] = (result[category][bucketKey] || 0) + annualTonnes;
         });
     });
@@ -1701,6 +1758,9 @@ window.carbonCalc = {
     updateDataTableTotalColumnHeader,
     getRowUnitDisplayLabel,
     getCategoryTotals,
+    getCategoryTotalsFromInputs,
+    getCategoryTotalsForYearRange,
+    getRowYear,
     getMonthlyTotals,
     getMonthlyTotalsByCategory,
     getYearComparison,
