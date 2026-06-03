@@ -54,8 +54,15 @@ const appState = {
 // LOGIN & SIGNUP SYSTEM (MongoDB Integration)
 // ============================================
 
-// Render / local API. Streamlit sets window.__CARBON_API_BASE__ when embedded.
-const API_BASE_URL = 'https://carboncalculator-2eak.onrender.com/api';
+// Default API; prefer resolveApiBaseUrl() from js/api-config.js (local vs Render, GitHub Pages).
+const API_BASE_URL_DEFAULT = 'https://carboncalculator-2eak.onrender.com/api';
+
+function getApiBaseUrl() {
+    if (typeof resolveApiBaseUrl === 'function') {
+        return resolveApiBaseUrl();
+    }
+    return API_BASE_URL_DEFAULT;
+}
 
 function getOrgApiHeaders(extraHeaders) {
     const headers = { ...(extraHeaders || {}) };
@@ -66,6 +73,7 @@ function getOrgApiHeaders(extraHeaders) {
     return headers;
 }
 window.getOrgApiHeaders = getOrgApiHeaders;
+window.getApiBaseUrl = getApiBaseUrl;
 
 function applyUserSessionFromLogin(user) {
     if (!user) return;
@@ -522,7 +530,7 @@ async function getChatbotReply(message) {
     if (hasApi) {
         try {
             const token = localStorage.getItem('authToken');
-            const response = await fetch(`${API_BASE_URL}/chatbot/assist`, {
+            const response = await fetch(`${getApiBaseUrl()}/chatbot/assist`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ message }),
@@ -743,15 +751,20 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
     if (loginError) loginError.textContent = '';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ login: identifier, password })
-        });
-        
+        const response =
+            typeof loginPost === 'function'
+                ? await loginPost(identifier, password)
+                : await fetch(`${getApiBaseUrl()}/login`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ login: identifier, password }),
+                      credentials: 'omit',
+                      mode: 'cors',
+                  });
+
         const raw = await response.text();
         const data = parseJsonResponse(raw);
-        
+
         if (response.ok) {
             if (!data.access_token) {
                 if (loginError) {
@@ -779,9 +792,11 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
         console.error('Login error:', err);
         if (loginError) {
             loginError.textContent =
-                appState.currentLanguage === 'pt'
-                    ? 'Erro de conexão. O servidor está disponível?'
-                    : 'Connection error. Is the backend running?';
+                typeof loginConnectionErrorMessage === 'function'
+                    ? loginConnectionErrorMessage(err, appState.currentLanguage)
+                    : appState.currentLanguage === 'pt'
+                      ? 'Erro de conexão. O servidor está disponível?'
+                      : 'Connection error. Is the backend running?';
         }
     }
 });
@@ -808,7 +823,7 @@ document.getElementById('signupForm')?.addEventListener('submit', async function
     }
     
     try {
-        const response = await fetch(`${API_BASE_URL}/signup`, {
+        const response = await fetch(`${getApiBaseUrl()}/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -879,7 +894,7 @@ document.getElementById('verifyForm')?.addEventListener('submit', async function
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/verify-email`, {
+        const response = await fetch(`${getApiBaseUrl()}/verify-email`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, code }),
@@ -931,7 +946,7 @@ document.getElementById('resendVerificationBtn')?.addEventListener('click', asyn
         return;
     }
     try {
-        const response = await fetch(`${API_BASE_URL}/resend-verification`, {
+        const response = await fetch(`${getApiBaseUrl()}/resend-verification`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email }),
@@ -976,14 +991,12 @@ async function loadUserDataFromBackend() {
 
     let dataResponse;
     let factorsResponse;
+    const apiFetch = typeof carbonApiFetch === 'function' ? carbonApiFetch : fetch;
+    const dataHeaders = getOrgApiHeaders();
     try {
         [dataResponse, factorsResponse] = await Promise.all([
-            fetch(`${API_BASE_URL}/data`, {
-                headers: getOrgApiHeaders(),
-            }),
-            fetch(`${API_BASE_URL}/factors`, {
-                headers: getOrgApiHeaders(),
-            }),
+            apiFetch(`${getApiBaseUrl()}/data`, { headers: dataHeaders }),
+            apiFetch(`${getApiBaseUrl()}/factors`, { headers: dataHeaders }),
         ]);
     } catch (err) {
         console.error('Error loading data from backend:', err);
@@ -1138,7 +1151,8 @@ async function saveUserDataToBackend(options) {
     });
 
     try {
-        const response = await fetch(`${API_BASE_URL}/data`, {
+        const apiFetch = typeof carbonApiFetch === 'function' ? carbonApiFetch : fetch;
+        const response = await apiFetch(`${getApiBaseUrl()}/data`, {
             method: 'POST',
             headers: getOrgApiHeaders({ 'Content-Type': 'application/json' }),
             body: payload,
@@ -2706,7 +2720,7 @@ document.getElementById('companyNameInput')?.addEventListener('input', async fun
     const token = localStorage.getItem('authToken');
     if (token) {
         try {
-            await fetch(`${API_BASE_URL}/user`, {
+            await fetch(`${getApiBaseUrl()}/user`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
