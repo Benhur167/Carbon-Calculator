@@ -16,15 +16,26 @@ function _chartTheme() {
 }
 
 const CHART_PREFS_KEY = 'carbonChartPreferences';
-const BAR_CHART_YEAR_MIN = 2020;
-const BAR_CHART_YEAR_MAX = 2025;
 
-function getBarChartYearLabels() {
-    const years = [];
-    for (let y = BAR_CHART_YEAR_MIN; y <= BAR_CHART_YEAR_MAX; y++) {
-        years.push(String(y));
-    }
-    return years;
+function getDashboardYearLabels() {
+    const years = window.carbonCalc?.collectDataYears?.();
+    if (years?.length) return years.map(String);
+    const fallback = [];
+    for (let y = 2020; y <= 2025; y++) fallback.push(String(y));
+    return fallback;
+}
+
+function formatYearSpanLabel() {
+    const years = window.carbonCalc?.collectDataYears?.() || [];
+    if (!years.length) return '2020–2025';
+    const min = years[0];
+    const max = years[years.length - 1];
+    return min === max ? String(min) : `${min}–${max}`;
+}
+
+function yearlyTitleSuffix() {
+    const span = formatYearSpanLabel();
+    return span ? ` (${span})` : '';
 }
 const CATEGORY_COLOR_PALETTE = [
     '#0EA5E9', '#F59E0B', '#16A34A', '#DC2626', '#64748B', '#6610F2', '#FD7E14', '#20C997', '#E83E8C',
@@ -187,25 +198,29 @@ function getMonthLabels() {
         : ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 }
 
-let emissionsChartGranularity = 'monthly';
-
-function bindEmissionsGranularitySelects() {
-    document.querySelectorAll('.emissions-granularity-select').forEach((sel) => {
-        if (sel.dataset.bound === '1') return;
-        sel.dataset.bound = '1';
-        sel.value = emissionsChartGranularity;
-        sel.addEventListener('change', () => {
-            emissionsChartGranularity = sel.value === 'yearly' ? 'yearly' : 'monthly';
-            document.querySelectorAll('.emissions-granularity-select').forEach((other) => {
-                other.value = emissionsChartGranularity;
-            });
-            updateCharts();
-        });
-    });
+function isChartYearly(selectId) {
+    const sel = document.getElementById(selectId);
+    return sel?.value === 'yearly';
 }
 
-function isEmissionsYearlyView() {
-    return emissionsChartGranularity === 'yearly';
+function bindChartGranularitySelect(selectId, onChange) {
+    const sel = document.getElementById(selectId);
+    if (!sel || sel.dataset.bound === '1') return;
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', onChange);
+}
+
+function bindMainChartGranularitySelects() {
+    bindChartGranularitySelect('pieChartGranularity', () => updatePieChart());
+    bindChartGranularitySelect('lineChartGranularity', () => updateLineChart());
+    bindChartGranularitySelect('barChartGranularity', () => updateBarChart());
+    bindChartGranularitySelect('sourceTrendGranularity', () => updateSourceTrendChart());
+}
+
+function bindCategoryTrendGranularitySelect(category) {
+    bindChartGranularitySelect(`sourceTrendGranularity_${category}`, () => {
+        updateSourceTrendCharts(category);
+    });
 }
 
 function getCategoryChartColor(category, index) {
@@ -285,7 +300,7 @@ function buildChartStyleFormHtml(chartId) {
                 <input type="color" id="chartFillColor" value="${cfg.fillColor}">
             </label>`;
         if (chartId === 'barChart') {
-            const years = getBarChartYearLabels();
+            const years = getDashboardYearLabels();
             const stored = prefs.charts.barChart?.colors || defaultPaletteColors(years.length);
             const barYears = prefs.charts.barChart?.barYears || years;
             colorSection += `<p style="margin:12px 0 8px;font-size:13px;color:var(--text-secondary);">Bar colors by year</p>`;
@@ -597,8 +612,9 @@ function updateCharts() {
     if (window.carbonCalc?.calculateAllTotals) {
         window.carbonCalc.calculateAllTotals();
     }
-    bindEmissionsGranularitySelects();
+    bindMainChartGranularitySelects();
     ensureSourceTrendChartCards();
+    getEmissionCategories().forEach((cat) => bindCategoryTrendGranularitySelect(cat));
     updatePieChart();
     updateBarChart();
     updateLineChart();
@@ -629,9 +645,10 @@ function updateAccountsCharts() {
 
 function updatePieChart() {
     const ct = _chartTheme();
-    const isYearly = isEmissionsYearlyView();
+    const isYearly = isChartYearly('pieChartGranularity');
     const totals = isYearly
-        ? window.carbonCalc.getCategoryTotalsForYearRange(2020, 2025)
+        ? window.carbonCalc.getCategoryTotalsForAllChartYears?.() ||
+          window.carbonCalc.getCategoryTotalsFromInputs?.()
         : window.carbonCalc.getCategoryTotalsFromInputs?.() || window.carbonCalc.getCategoryTotals();
     const keys = getEmissionCategories().filter((key) => (totals[key] || 0) > 0);
     const labels = keys.map((key) => getCategoryDisplayName(key));
@@ -641,10 +658,10 @@ function updatePieChart() {
     const pieTitle = document.getElementById('pieChartTitle');
     if (pieTitle) {
         const en = isYearly
-            ? 'Emissions by Category (2020–2025)'
+            ? `Emissions by Category${yearlyTitleSuffix()}`
             : 'Emissions by Category';
         const pt = isYearly
-            ? 'Emissões por Categoria (2020–2025)'
+            ? `Emissões por Categoria${yearlyTitleSuffix()}`
             : 'Emissões por Categoria';
         pieTitle.textContent = appState.currentLanguage === 'pt' ? pt : en;
         pieTitle.setAttribute('data-en', en);
@@ -715,19 +732,36 @@ function updatePieChart() {
 function updateBarChart() {
     const ct = _chartTheme();
     const barCfg = getChartConfig('barChart');
-    // Force recalculation first
-    if (window.carbonCalc && window.carbonCalc.calculateAllTotals) {
-        window.carbonCalc.calculateAllTotals();
+    const isYearly = isChartYearly('barChartGranularity');
+
+    const barTitle = document.getElementById('barChartTitle');
+    if (barTitle) {
+        const en = isYearly
+            ? `Year-over-Year Comparison${yearlyTitleSuffix()}`
+            : 'Monthly Comparison (Total)';
+        const pt = isYearly
+            ? `Comparação Ano a Ano${yearlyTitleSuffix()}`
+            : 'Comparação Mensal (Total)';
+        barTitle.textContent = appState.currentLanguage === 'pt' ? pt : en;
+        barTitle.setAttribute('data-en', en);
+        barTitle.setAttribute('data-pt', pt);
     }
-    
-    const yearComparison = window.carbonCalc.getYearComparison();
-    const years = getBarChartYearLabels();
-    const values = years.map((year) => yearComparison[year] || 0);
-    
-    let colors = barCfg.colors?.length === years.length
+
+    let chartLabels;
+    let values;
+    if (isYearly) {
+        const yearComparison = window.carbonCalc.getYearComparison();
+        chartLabels = getDashboardYearLabels();
+        values = chartLabels.map((year) => yearComparison[year] || 0);
+    } else {
+        chartLabels = getMonthLabels();
+        values = window.carbonCalc.getMonthlyTotals();
+    }
+
+    let colors = barCfg.colors?.length === chartLabels.length
         ? barCfg.colors
-        : generateYearColors(years.length);
-    if (!colors?.length) colors = generateYearColors(years.length);
+        : generateYearColors(chartLabels.length);
+    if (!colors?.length) colors = generateYearColors(chartLabels.length);
     
     const ctx = document.getElementById('barChart');
     if (!ctx) {
@@ -742,13 +776,13 @@ function updateBarChart() {
     barChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: years,
+            labels: chartLabels,
             datasets: [{
                 label: appState.currentLanguage === 'en'
-                    ? `Total Emissions (${chartLabelForUnit()})`
-                    : `Emissões Totais (${chartLabelForUnit()})`,
+                    ? `${isYearly ? 'Yearly' : 'Monthly'} Emissions (${chartLabelForUnit()})`
+                    : `Emissões ${isYearly ? 'Anuais' : 'Mensais'} (${chartLabelForUnit()})`,
                 data: values.map(convertTonnesToDisplayValue),
-                backgroundColor: colors.length === years.length ? colors : generateYearColors(years.length),
+                backgroundColor: colors.length === chartLabels.length ? colors : generateYearColors(chartLabels.length),
                 borderWidth: 0,
                 borderRadius: 8,
                 barThickness: 'flex',
@@ -817,9 +851,9 @@ function updateBarChart() {
 function updateLineChart() {
     const ct = _chartTheme();
     const lineCfg = getChartConfig('lineChart');
-    const isYearly = isEmissionsYearlyView();
+    const isYearly = isChartYearly('lineChartGranularity');
     const monthNames = getMonthLabels();
-    const yearLabels = getBarChartYearLabels();
+    const yearLabels = getDashboardYearLabels();
     const yearComparison = window.carbonCalc.getYearComparison();
     const chartLabels = isYearly ? yearLabels : monthNames;
     const chartValues = isYearly
@@ -829,10 +863,10 @@ function updateLineChart() {
     const lineTitle = document.getElementById('lineChartTitle');
     if (lineTitle) {
         const en = isYearly
-            ? 'Yearly Emissions Trend (2020–2025)'
+            ? `Yearly Emissions Trend${yearlyTitleSuffix()}`
             : 'Monthly Emissions Trend (Total)';
         const pt = isYearly
-            ? 'Tendência Anual de Emissões (2020–2025)'
+            ? `Tendência Anual de Emissões${yearlyTitleSuffix()}`
             : 'Tendência Mensal de Emissões (Total)';
         lineTitle.textContent = appState.currentLanguage === 'pt' ? pt : en;
         lineTitle.setAttribute('data-en', en);
@@ -886,20 +920,19 @@ function updateLineChart() {
 
 function updateSourceTrendChart() {
     if (!window.carbonCalc?.getMonthlyTotalsByCategory) return;
-    bindEmissionsGranularitySelects();
     const ct = _chartTheme();
     const cfg = getChartConfig('sourceTrendChart');
     const chartEl = document.getElementById('sourceTrendChart');
     if (!chartEl) return;
 
     const titleEl = document.getElementById('sourceTrendChartTitle');
-    const isYearly = isEmissionsYearlyView();
+    const isYearly = isChartYearly('sourceTrendGranularity');
     if (titleEl) {
         const en = isYearly
-            ? 'Yearly Trend by Source (2020–2025)'
+            ? `Yearly Trend by Source${yearlyTitleSuffix()}`
             : 'Monthly Trend by Source (All)';
         const pt = isYearly
-            ? 'Tendência anual por fonte (2020–2025)'
+            ? `Tendência anual por fonte${yearlyTitleSuffix()}`
             : 'Tendência mensal por fonte (todas)';
         titleEl.textContent = appState.currentLanguage === 'pt' ? pt : en;
         titleEl.setAttribute('data-en', en);
@@ -910,7 +943,7 @@ function updateSourceTrendChart() {
     let dataByCategory;
     if (isYearly && window.carbonCalc.getYearlyTotalsByCategory) {
         dataByCategory = window.carbonCalc.getYearlyTotalsByCategory();
-        labels = getBarChartYearLabels();
+        labels = getDashboardYearLabels();
     } else {
         dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory();
         labels = getMonthLabels();
@@ -982,9 +1015,11 @@ function ensureSourceTrendChartCards() {
         let card = grid.querySelector(`[data-widget="${widgetId}"]`);
         const titleEnMonthly = `Monthly Emissions Trend — ${getCategoryDisplayName(category)}`;
         const titlePtMonthly = `Tendência Mensal de Emissões — ${getCategoryDisplayName(category)}`;
-        const titleEnYearly = `Yearly Emissions Trend — ${getCategoryDisplayName(category)} (2020–2025)`;
-        const titlePtYearly = `Tendência Anual de Emissões — ${getCategoryDisplayName(category)} (2020–2025)`;
-        const isYearly = isEmissionsYearlyView();
+        const suffix = yearlyTitleSuffix();
+        const titleEnYearly = `Yearly Emissions Trend — ${getCategoryDisplayName(category)}${suffix}`;
+        const titlePtYearly = `Tendência Anual de Emissões — ${getCategoryDisplayName(category)}${suffix}`;
+        const granSelId = `sourceTrendGranularity_${category}`;
+        const isYearly = isChartYearly(granSelId);
         const titleEn = isYearly ? titleEnYearly : titleEnMonthly;
         const titlePt = isYearly ? titlePtYearly : titlePtMonthly;
 
@@ -996,9 +1031,9 @@ function ensureSourceTrendChartCards() {
                 <div class="chart-header">
                     <h3 data-en="${titleEn}" data-pt="${titlePt}">${titleEn}</h3>
                     <div class="chart-header-actions">
-                        <select class="toolbar-control toolbar-select chart-granularity-select emissions-granularity-select" title="Monthly or yearly view">
+                        <select id="${granSelId}" class="toolbar-control toolbar-select chart-granularity-select" title="Monthly or yearly view">
                             <option value="monthly" data-en="Monthly" data-pt="Mensal">Monthly</option>
-                            <option value="yearly" data-en="Yearly (2020–2025)" data-pt="Anual (2020–2025)">Yearly (2020–2025)</option>
+                            <option value="yearly" data-en="Yearly" data-pt="Anual">Yearly</option>
                         </select>
                         <button type="button" class="chart-style-btn" title="Customize chart colors and font">
                             <i class="fas fa-palette"></i>
@@ -1011,6 +1046,7 @@ function ensureSourceTrendChartCards() {
             const styleBtn = card.querySelector('.chart-style-btn');
             styleBtn.addEventListener('click', () => openChartStyleModal(chartId));
             grid.appendChild(card);
+            bindCategoryTrendGranularitySelect(category);
         } else {
             const h3 = card.querySelector('h3');
             if (h3) {
@@ -1018,6 +1054,7 @@ function ensureSourceTrendChartCards() {
                 h3.setAttribute('data-en', titleEn);
                 h3.setAttribute('data-pt', titlePt);
             }
+            bindCategoryTrendGranularitySelect(category);
         }
 
         if (appState.hiddenWidgets?.includes(widgetId)) {
@@ -1026,25 +1063,42 @@ function ensureSourceTrendChartCards() {
     });
 }
 
-function updateSourceTrendCharts() {
+function updateSourceTrendCharts(categoryFilter) {
     if (!window.carbonCalc?.getMonthlyTotalsByCategory) return;
     ensureSourceTrendChartCards();
-    bindEmissionsGranularitySelects();
 
-    const isYearly = isEmissionsYearlyView();
-    const dataByCategory = isYearly
-        ? window.carbonCalc.getYearlyTotalsByCategory()
-        : window.carbonCalc.getMonthlyTotalsByCategory();
-    const labels = isYearly ? getBarChartYearLabels() : getMonthLabels();
     const ct = _chartTheme();
     const categories = getEmissionCategories();
 
     categories.forEach((category, idx) => {
+        if (categoryFilter && category !== categoryFilter) return;
+
+        const granSelId = `sourceTrendGranularity_${category}`;
+        const isYearly = isChartYearly(granSelId);
+        const dataByCategory = isYearly
+            ? window.carbonCalc.getYearlyTotalsByCategory()
+            : window.carbonCalc.getMonthlyTotalsByCategory();
+        const labels = isYearly ? getDashboardYearLabels() : getMonthLabels();
+
+        const suffix = yearlyTitleSuffix();
+        const card = document.querySelector(`[data-widget="source-trend-${category}"]`);
+        const h3 = card?.querySelector('h3');
+        if (h3) {
+            const titleEn = isYearly
+                ? `Yearly Emissions Trend — ${getCategoryDisplayName(category)}${suffix}`
+                : `Monthly Emissions Trend — ${getCategoryDisplayName(category)}`;
+            const titlePt = isYearly
+                ? `Tendência Anual de Emissões — ${getCategoryDisplayName(category)}${suffix}`
+                : `Tendência Mensal de Emissões — ${getCategoryDisplayName(category)}`;
+            h3.textContent = appState.currentLanguage === 'pt' ? titlePt : titleEn;
+            h3.setAttribute('data-en', titleEn);
+            h3.setAttribute('data-pt', titlePt);
+        }
+
         const chartId = `sourceTrend_${category}`;
         const canvas = document.getElementById(`sourceTrendChart_${category}`);
         if (!canvas) return;
 
-        const card = canvas.closest('.widget-card');
         if (card?.classList.contains('hidden')) return;
 
         const cfg = getChartConfig(chartId);

@@ -1456,6 +1456,40 @@ function getCategoryTotalsForYearRange(minYear, maxYear) {
     return totals;
 }
 
+const CHART_BASELINE_YEAR_MIN = 2020;
+const CHART_BASELINE_YEAR_MAX = 2025;
+const CHART_YEAR_ABS_MIN = 1990;
+const CHART_YEAR_ABS_MAX = 2100;
+
+function isValidChartYear(year) {
+    return Number.isFinite(year) && year >= CHART_YEAR_ABS_MIN && year <= CHART_YEAR_ABS_MAX;
+}
+
+/** Years for charts: always includes 2020–2025, plus any years present in data rows. */
+function collectDataYears() {
+    const yearSet = new Set();
+    for (let y = CHART_BASELINE_YEAR_MIN; y <= CHART_BASELINE_YEAR_MAX; y++) {
+        yearSet.add(y);
+    }
+
+    getDataInputCategories().forEach((category) => {
+        const table = document.getElementById(`${category}Table`);
+        if (!table) return;
+        table.querySelectorAll('.data-row').forEach((row) => {
+            const year = getRowYear(row);
+            if (isValidChartYear(year)) yearSet.add(year);
+        });
+    });
+
+    return Array.from(yearSet).sort((a, b) => a - b);
+}
+
+function getCategoryTotalsForAllChartYears() {
+    const years = collectDataYears();
+    if (!years.length) return getCategoryTotalsFromInputs();
+    return getCategoryTotalsForYearRange(years[0], years[years.length - 1]);
+}
+
 function getCategoryTotals() {
     const totals = {};
     getDataInputCategories().forEach((category) => {
@@ -1538,14 +1572,13 @@ function getMonthlyTotalsByCategory() {
 function getYearlyTotalsByCategory() {
     const categories = getDataInputCategories();
     const result = {};
-    const minYear = 2020;
-    const maxYear = 2025;
+    const baselineYears = collectDataYears().map(String);
 
     categories.forEach((category) => {
         result[category] = {};
-        for (let y = minYear; y <= maxYear; y++) {
-            result[category][String(y)] = 0;
-        }
+        baselineYears.forEach((y) => {
+            result[category][y] = 0;
+        });
     });
 
     categories.forEach((category) => {
@@ -1555,7 +1588,7 @@ function getYearlyTotalsByCategory() {
         table.querySelectorAll('.data-row').forEach((row) => {
             if (!rowIncludedInReportingPeriod(row)) return;
             const year = getRowYear(row);
-            if (year == null || year < minYear || year > maxYear) return;
+            if (!isValidChartYear(year)) return;
             const conversionFactor = getRowConversionFactor(row, `${category}Table`);
             const rowUnit = row.querySelector('.row-unit-select')?.value || '';
             let annualTonnes = 0;
@@ -1568,7 +1601,8 @@ function getYearlyTotalsByCategory() {
                 annualTonnes += (baseValue * conversionFactor) / 1000;
             });
             const bucketKey = String(year);
-            result[category][bucketKey] = (result[category][bucketKey] || 0) + annualTonnes;
+            if (result[category][bucketKey] == null) result[category][bucketKey] = 0;
+            result[category][bucketKey] += annualTonnes;
         });
     });
 
@@ -1599,7 +1633,7 @@ function getYearComparison() {
                     const yearInput = inputs[1];
                     if (yearInput && yearInput.type === 'number') {
                         const year = parseInt(yearInput.value);
-                        if (!isNaN(year) && year >= 2020 && year <= 2030) {
+                        if (!isNaN(year) && isValidChartYear(year)) {
                             // Ensure row total & CO2 cell are up to date
                             if (window.carbonCalc && window.carbonCalc.calculateRowTotal) {
                                 window.carbonCalc.calculateRowTotal(row);
@@ -1760,6 +1794,8 @@ window.carbonCalc = {
     getCategoryTotals,
     getCategoryTotalsFromInputs,
     getCategoryTotalsForYearRange,
+    getCategoryTotalsForAllChartYears,
+    collectDataYears,
     getRowYear,
     getMonthlyTotals,
     getMonthlyTotalsByCategory,
