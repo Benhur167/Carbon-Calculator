@@ -893,8 +893,7 @@ body {
 
 /* Data input — per-tab additional questions */
 .tab-questions-card {
-    width: 50%;
-    max-width: 100%;
+    width: 100%;
     margin-top: 12px;
     margin-bottom: 16px;
 }

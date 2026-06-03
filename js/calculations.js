@@ -556,8 +556,12 @@ function getCatalogEmissionOptions(category, year) {
     Object.keys(bucket).forEach((key) => {
         const n = Number(bucket[key]);
         if (!Number.isFinite(n) || n <= 0) return;
-        if (inferFactorCategory(key) !== category) return;
         const uiKey = CATALOG_UI_KEY_FOR_BACKEND[key] || key;
+        const dataCategory =
+            typeof window.dataCategoryForEmissionKey === 'function'
+                ? window.dataCategoryForEmissionKey(uiKey)
+                : inferFactorCategory(uiKey);
+        if (dataCategory !== category) return;
         if (seen.has(uiKey)) return;
         seen.add(uiKey);
         options.push({

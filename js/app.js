@@ -590,6 +590,7 @@ async function sendChatbotMessage() {
 const CATEGORY_DEFAULT_UNITS = {
     water: 'm3',
     energy: 'kwh',
+    transmissionDistribution: 'kwh',
     waste: 'tonnes',
     transport: 'km',
     businessTravel: 'km',
@@ -1644,6 +1645,7 @@ function getPreferredUnitForCategory(category, emissionKey) {
     const keyMap = {
         water: 'waterUnit',
         energy: 'energyUnit',
+        transmissionDistribution: 'elecDistLossUnit',
         waste: 'wasteUnit',
         transport: 'transportUnit',
         businessTravel: 'businessTravelUnit',
@@ -1677,6 +1679,7 @@ function getUnitSelectHtml(category, selectedUnit, emissionKey) {
         const unitsByCategory = {
             water: [['m3', 'm³'], ['million_litres', 'Million litres']],
             energy: [['kwh', 'kWh'], ['mwh', 'MWh'], ['gj', 'GJ'], ['mj', 'MJ'], ['therms', 'therms']],
+            transmissionDistribution: [['kwh', 'kWh']],
             waste: [['tonnes', 'tonnes'], ['kg', 'kg'], ['lbs', 'lbs']],
             transport: [['km', 'km'], ['miles', 'miles'], ['passenger_km', 'passenger-km'], ['tonne_km', 'tonne-km'], ['night', 'night'], ['day', 'day']],
             refrigerants: [['kg', 'kg'], ['g', 'g'], ['lbs', 'lbs']],
@@ -1748,7 +1751,7 @@ function getEmissionSelectHtml(category, selectedKey, year) {
 
     if (window.carbonCalc && typeof window.carbonCalc.getCatalogEmissionOptions === 'function') {
         const catalogOpts = window.carbonCalc.getCatalogEmissionOptions(
-            catalogCategory,
+            category,
             year || (window.carbonCalc.getReportingYear && window.carbonCalc.getReportingYear())
         );
         const filtered = filterEmissionOptionsForCategory(catalogOpts, category);
@@ -1776,6 +1779,18 @@ function getEmissionSelectHtml(category, selectedKey, year) {
             { key: 'diesel', labelEn: 'Diesel (generator/boiler)', labelPt: 'Diesel (gerador/caldeira)' },
             { key: 'lpg', labelEn: 'LPG', labelPt: 'GLP' },
             { key: 'coal', labelEn: 'Coal', labelPt: 'Carvão' }
+        ],
+        transmissionDistribution: [
+            {
+                key: 'electricity_transmission_distribution',
+                labelEn: 'T&D — UK electricity',
+                labelPt: 'T&D — eletricidade UK',
+            },
+            {
+                key: 'td_district_heat_steam',
+                labelEn: 'T&D — district heat & steam',
+                labelPt: 'T&D — calor distrital e vapor',
+            },
         ],
         waste: [
             { key: 'waste_landfill', labelEn: 'Waste to landfill', labelPt: 'Resíduo para aterro' },
@@ -1877,7 +1892,10 @@ function getEmissionSelectHtml(category, selectedKey, year) {
         ]
     };
 
-    const options = filterEmissionOptionsForCategory(optionsByCategory[catalogCategory] || [], category);
+    const options = filterEmissionOptionsForCategory(
+        optionsByCategory[category] || optionsByCategory[catalogCategory] || [],
+        category
+    );
     const defaultSelected = selectedKey || (options[0] ? options[0].key : '');
 
     let html = `<select class="emission-select" data-category="${category}">`;
@@ -2147,19 +2165,34 @@ function loadRowData(row, data) {
         data.emissionType = emissionType;
     }
 
-    if (emissionSelect && emissionType) {
-        if (!Array.from(emissionSelect.options).some((o) => o.value === emissionType)) {
+    if (category === 'transmissionDistribution' && row.cells?.[0]) {
+        const defaultTdEmission =
+            window.DATA_TAB_META?.transmissionDistribution?.defaultEmission ||
+            'electricity_transmission_distribution';
+        emissionType = emissionType || defaultTdEmission;
+        data.emissionType = emissionType;
+        const rowYear =
+            data.year || window.carbonCalc?.getReportingYear?.() || new Date().getFullYear();
+        row.cells[0].innerHTML = getEmissionSelectHtml(category, emissionType, rowYear);
+        data.unit = 'kwh';
+    }
+
+    const emissionSelectAfterFix = row.querySelector('.emission-select');
+    if (emissionSelectAfterFix && emissionType) {
+        if (!Array.from(emissionSelectAfterFix.options).some((o) => o.value === emissionType)) {
             const opt = document.createElement('option');
             opt.value = emissionType;
             opt.textContent = window.carbonCalc?.getFactorDisplayLabel?.(emissionType) || emissionType;
-            emissionSelect.appendChild(opt);
+            emissionSelectAfterFix.appendChild(opt);
         }
-        emissionSelect.value = emissionType;
+        emissionSelectAfterFix.value = emissionType;
     }
-    const emissionKey = emissionSelect?.value || data.emissionType || null;
+    const emissionKey = emissionSelectAfterFix?.value || data.emissionType || null;
     if (category && emissionKey && row.cells?.[2]) {
         let preferred = data.unit || getPreferredUnitForCategory(category, emissionKey);
-        if (
+        if (category === 'transmissionDistribution') {
+            preferred = 'kwh';
+        } else if (
             category === 'water' &&
             window.AssessmentScopeUnits?.normalizeWaterRowUnit
         ) {

@@ -935,6 +935,9 @@
     }
 
     function getDataInputUnitOptions(dataCategory, emissionKey) {
+        if (dataCategory === 'transmissionDistribution') {
+            return [['kwh', 'kWh']];
+        }
         const unitCategory =
             typeof global.resolveUnitCategoryForDataTab === 'function'
                 ? global.resolveUnitCategoryForDataTab(dataCategory)
