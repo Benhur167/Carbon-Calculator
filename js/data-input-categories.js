@@ -207,9 +207,9 @@
                             <th data-en="Emission type" data-pt="Tipo de emissão">Emission type</th>
                             <th data-en="Description" data-pt="Descrição">Description</th>
                             <th data-en="Unit" data-pt="Unidade">Unit</th>
-                            <th data-en="Year" data-pt="Ano">Year</th>
-                            <th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>May</th><th>Jun</th>
-                            <th>Jul</th><th>Aug</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th>
+                            <th class="row-display-year-header" data-en="Display year" data-pt="Ano (exibição)">Display year</th>
+                            <th class="month-header">Jan</th><th class="month-header">Feb</th><th class="month-header">Mar</th><th class="month-header">Apr</th><th class="month-header">May</th><th class="month-header">Jun</th>
+                            <th class="month-header">Jul</th><th class="month-header">Aug</th><th class="month-header">Sep</th><th class="month-header">Oct</th><th class="month-header">Nov</th><th class="month-header">Dec</th>
                             <th class="total-col-header" data-en="${meta.totalColEn}" data-pt="${meta.totalColPt}">${meta.totalColEn}</th>
                             <th class="emissions-col-header" data-en="Emissions (tCO₂e)" data-pt="Emissões (tCO₂e)">Emissions (tCO₂e)</th>
                             <th></th>

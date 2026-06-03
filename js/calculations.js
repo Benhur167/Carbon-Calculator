@@ -19,6 +19,7 @@ const SOURCE_TO_CATEGORY = {
     wastewater: 'water',
     water_reuse: 'water',
     electricity: 'energy',
+    electricity_transmission_distribution: 'energy',
     naturalGas: 'energy',
     diesel: 'energy',
     lpg: 'energy',
@@ -123,7 +124,9 @@ const SOURCE_TO_CATEGORY = {
 const COUNTRY_BASE_FACTORS_2025 = {
     UK: {
         water: 0.1913, wastewater: 0.17088, water_reuse: 0.028,
-        electricity: 0.177, naturalGas: 0.18296, diesel: 0.24411, lpg: 0.214, coal: 0.317,
+        electricity: 0.177,
+        electricity_transmission_distribution: 0.0183,
+        naturalGas: 0.18296, diesel: 0.24411, lpg: 0.214, coal: 0.317,
         waste: 467.0, wasteRecycled: 21.3, waste_composted: 8.8,
         waste_landfill: 467.0, waste_to_energy: 21.28, waste_to_recycling: 21.3, waste_to_composting: 8.8,
         transport_petrol: 0.168, transport_diesel: 0.171, transport_electric: 0.053,
@@ -406,6 +409,7 @@ const CATALOG_FACTOR_LABELS_EN = {
     wastewater: 'Waste water',
     water_reuse: 'Reused water',
     electricity: 'Electricity (grid)',
+    electricity_transmission_distribution: 'Electricity (transmission & distribution)',
     naturalGas: 'Natural gas',
     diesel: 'Diesel / heating oil',
     transport_petrol: 'Company vehicles (petrol)',
@@ -466,7 +470,9 @@ function inferFactorCategory(key) {
 function inferFactorAssessmentSubgroup(key) {
     const k = String(key || '');
     const ui = CATALOG_UI_KEY_FOR_BACKEND[k] || k;
-    if (['electricity', 'electricity_grid'].includes(ui)) return 'electricity';
+    if (['electricity', 'electricity_grid', 'electricity_transmission_distribution'].includes(ui)) {
+        return ui === 'electricity_transmission_distribution' ? 'electricity_td' : 'electricity';
+    }
     if (['naturalGas', 'diesel', 'lpg', 'coal', 'natural_gas', 'heating_oil'].includes(ui)) {
         return 'gas_energy';
     }
@@ -489,6 +495,7 @@ function inferFactorAssessmentSubgroup(key) {
 
 const ASSESSMENT_FACTOR_SUBGROUP_ORDER = [
     'electricity',
+    'electricity_td',
     'gas_energy',
     'water',
     'wastewater',
@@ -505,6 +512,10 @@ const ASSESSMENT_FACTOR_SUBGROUP_ORDER = [
 
 const ASSESSMENT_FACTOR_SUBGROUP_TITLES = {
     electricity: { en: 'Electricity', pt: 'Eletricidade' },
+    electricity_td: {
+        en: 'Transmission & distribution',
+        pt: 'Transmissão e distribuição',
+    },
     gas_energy: { en: 'Gas & other fuels', pt: 'Gás e outros combustíveis' },
     water: { en: 'Water', pt: 'Água' },
     wastewater: { en: 'Waste water', pt: 'Águas residuais' },
@@ -685,6 +696,110 @@ function rebuildConversionFactorCheckboxes() {
         bySubgroup[subgroup].push({ key: uiKey, label: getFactorDisplayLabel(uiKey) });
     });
     host.innerHTML = '';
+    const groupsOpen = getConversionFactorGroupsOpenState();
+
+    const appendFactorRow = (container, key, label) => {
+        const row = document.createElement('div');
+        row.className = 'conversion-factor-row';
+        const labelEl = document.createElement('label');
+        labelEl.className = 'conversion-factor-label-wrap';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'conversion-factor-checkbox';
+        cb.dataset.factorKey = key;
+        cb.checked = prevChecked.size === 0 || prevChecked.has(key);
+        const text = document.createElement('span');
+        text.className = 'conversion-factor-label';
+        text.textContent = label;
+        text.title = 'Unit options apply per factor';
+        labelEl.appendChild(cb);
+        labelEl.appendChild(text);
+        row.appendChild(labelEl);
+        row.appendChild(createConversionFactorUnitSelect(key));
+        container.appendChild(row);
+    };
+
+    const buildGroupShell = (subgroup, titles) => {
+        const group = document.createElement('div');
+        group.className = 'conversion-factor-group';
+        group.dataset.subgroup = subgroup;
+
+        const header = document.createElement('div');
+        header.className = 'conversion-factor-group-header';
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.className = 'conversion-factor-group-toggle';
+        toggleBtn.setAttribute('aria-expanded', 'true');
+        toggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i>';
+
+        const h3 = document.createElement('h3');
+        h3.textContent = titles.en;
+        h3.setAttribute('data-en', titles.en);
+        h3.setAttribute('data-pt', titles.pt);
+
+        const actions = document.createElement('div');
+        actions.className = 'conversion-factor-group-actions';
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.type = 'button';
+        selectAllBtn.className = 'conversion-factor-bulk-btn';
+        selectAllBtn.textContent = 'Select all';
+        selectAllBtn.setAttribute('data-en', 'Select all');
+        selectAllBtn.setAttribute('data-pt', 'Selecionar todos');
+        const deselectAllBtn = document.createElement('button');
+        deselectAllBtn.type = 'button';
+        deselectAllBtn.className = 'conversion-factor-bulk-btn';
+        deselectAllBtn.textContent = 'Deselect all';
+        deselectAllBtn.setAttribute('data-en', 'Deselect all');
+        deselectAllBtn.setAttribute('data-pt', 'Desmarcar todos');
+        actions.appendChild(selectAllBtn);
+        actions.appendChild(deselectAllBtn);
+
+        header.appendChild(toggleBtn);
+        header.appendChild(h3);
+        if (window.AssessmentScopeUnits?.createConversionFactorGroupUnitSelect) {
+            header.appendChild(
+                window.AssessmentScopeUnits.createConversionFactorGroupUnitSelect(subgroup)
+            );
+        }
+        header.appendChild(actions);
+        group.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'conversion-factor-group-body';
+        group.appendChild(body);
+
+        const defaultOpen = groupsOpen[subgroup] !== false;
+        body.hidden = !defaultOpen;
+        toggleBtn.setAttribute('aria-expanded', String(defaultOpen));
+        toggleBtn.querySelector('i').className = defaultOpen
+            ? 'fas fa-chevron-down'
+            : 'fas fa-chevron-right';
+
+        const setGroupOpen = (open) => {
+            body.hidden = !open;
+            toggleBtn.setAttribute('aria-expanded', String(open));
+            toggleBtn.querySelector('i').className = open
+                ? 'fas fa-chevron-down'
+                : 'fas fa-chevron-right';
+            setConversionFactorGroupOpen(subgroup, open);
+        };
+
+        toggleBtn.addEventListener('click', () => setGroupOpen(body.hidden));
+        selectAllBtn.addEventListener('click', () => {
+            body.querySelectorAll('.conversion-factor-checkbox').forEach((cb) => {
+                cb.checked = true;
+            });
+        });
+        deselectAllBtn.addEventListener('click', () => {
+            body.querySelectorAll('.conversion-factor-checkbox').forEach((cb) => {
+                cb.checked = false;
+            });
+        });
+
+        return { group, body };
+    };
+
     ASSESSMENT_FACTOR_SUBGROUP_ORDER.forEach((subgroup) => {
         const items = bySubgroup[subgroup];
         if (!items?.length) return;
@@ -693,40 +808,29 @@ function rebuildConversionFactorCheckboxes() {
             en: humanizeFactorKey(subgroup),
             pt: humanizeFactorKey(subgroup),
         };
-        const group = document.createElement('div');
-        group.className = 'conversion-factor-group';
+        const { group, body } = buildGroupShell(subgroup, titles);
 
-        const header = document.createElement('div');
-        header.className = 'conversion-factor-group-header';
-        const h3 = document.createElement('h3');
-        h3.textContent = titles.en;
-        h3.setAttribute('data-en', titles.en);
-        h3.setAttribute('data-pt', titles.pt);
-        header.appendChild(h3);
-        if (window.AssessmentScopeUnits?.createConversionFactorGroupUnitSelect) {
-            header.appendChild(window.AssessmentScopeUnits.createConversionFactorGroupUnitSelect(subgroup));
+        if (subgroup === 'freight') {
+            const sea = items.filter(({ key }) => CARGO_SHIP_FACTOR_KEYS.includes(key));
+            const other = items.filter(({ key }) => !CARGO_SHIP_FACTOR_KEYS.includes(key));
+            other.forEach(({ key, label }) => appendFactorRow(body, key, label));
+            if (sea.length) {
+                const sub = document.createElement('div');
+                sub.className = 'conversion-factor-subgroup';
+                const subTitle = document.createElement('h4');
+                subTitle.className = 'conversion-factor-subgroup-title';
+                subTitle.textContent = 'Sea freight (cargo ship)';
+                subTitle.setAttribute('data-en', 'Sea freight (cargo ship)');
+                subTitle.setAttribute('data-pt', 'Frete marítimo (navio cargueiro)');
+                subTitle.title = 'Factors per tonne-km';
+                sub.appendChild(subTitle);
+                sea.forEach(({ key, label }) => appendFactorRow(sub, key, label));
+                body.appendChild(sub);
+            }
+        } else {
+            items.forEach(({ key, label }) => appendFactorRow(body, key, label));
         }
-        group.appendChild(header);
-        items.forEach(({ key, label }) => {
-            const row = document.createElement('div');
-            row.className = 'conversion-factor-row';
 
-            const labelEl = document.createElement('label');
-            labelEl.className = 'conversion-factor-label-wrap';
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.className = 'conversion-factor-checkbox';
-            cb.dataset.factorKey = key;
-            cb.checked = prevChecked.size === 0 || prevChecked.has(key);
-            const text = document.createElement('span');
-            text.className = 'conversion-factor-label';
-            text.textContent = label;
-            labelEl.appendChild(cb);
-            labelEl.appendChild(text);
-            row.appendChild(labelEl);
-            row.appendChild(createConversionFactorUnitSelect(key));
-            group.appendChild(row);
-        });
         host.appendChild(group);
     });
 }
@@ -800,6 +904,23 @@ function writeOrgPref(key, value) {
 let currentCountry = 'UK';
 let currentOutputUnit = readOrgPref('carbonCalcOutputUnit', 'tCO2e');
 let currentReportingYear = Number(readOrgPref('carbonCalcReportingYear', String(BASE_YEAR)));
+let currentReportingPeriodType = readOrgPref('reportingPeriodType', 'calendar') === 'financial_uk'
+    ? 'financial_uk'
+    : 'calendar';
+
+const CALENDAR_MONTH_LABELS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const CALENDAR_MONTH_LABELS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const FY_MONTH_LABELS_EN = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
+const FY_MONTH_LABELS_PT = ['Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez', 'Jan', 'Fev', 'Mar'];
+
+/** Cargo ship factors grouped under freight for clearer UI (CC-103). */
+const CARGO_SHIP_FACTOR_KEYS = [
+    'cargo_ship_bulk',
+    'cargo_ship_general',
+    'cargo_ship_container',
+    'cargo_ship_vehicle',
+    'cargo_ship_refrigerated',
+];
 
 function getDataInputCategories() {
     if (Array.isArray(window.DATA_INPUT_CATEGORIES) && window.DATA_INPUT_CATEGORIES.length) {
@@ -848,9 +969,21 @@ function setReportingYear(year) {
     if (typeof window.setOrgLocalItem === 'function') {
         window.setOrgLocalItem('carbonCalcReportingYear', String(currentReportingYear));
     }
+    syncReportingPeriodLabelToDOM();
     rebuildConversionFactorCheckboxes();
     calculateAllTotals();
     if (typeof updateDashboard === 'function') updateDashboard();
+}
+
+function hydrateReportingPeriodFromPrefs(prefs) {
+    if (!prefs || typeof prefs !== 'object') return;
+    if (prefs.reportingPeriodType) {
+        currentReportingPeriodType =
+            prefs.reportingPeriodType === 'financial_uk' ? 'financial_uk' : 'calendar';
+    }
+    if (prefs.carbonCalcReportingYear) {
+        currentReportingYear = normalizeRowYear(prefs.carbonCalcReportingYear);
+    }
 }
 
 function getOutputUnit() {
@@ -926,9 +1059,108 @@ function normalizeDisplayToTonnes(value, unit) {
     return unit === 'kgCO2e' ? n / 1000 : n;
 }
 
+/** D5: all rows on the active site contribute; row display year does not filter totals. */
+function rowIncludedInReportingPeriod(row) {
+    if (!row || !row.classList?.contains('data-row')) return false;
+    return true;
+}
+
+/** @deprecated use rowIncludedInReportingPeriod */
 function rowMatchesReportingYear(row) {
-    const rowYear = normalizeRowYear(row.querySelector('input[type="number"]:not(.month-input)')?.value);
-    return rowYear === getReportingYear();
+    return rowIncludedInReportingPeriod(row);
+}
+
+function getReportingPeriodType() {
+    return currentReportingPeriodType === 'financial_uk' ? 'financial_uk' : 'calendar';
+}
+
+function setReportingPeriodType(type) {
+    currentReportingPeriodType = type === 'financial_uk' ? 'financial_uk' : 'calendar';
+    writeOrgPref('reportingPeriodType', currentReportingPeriodType);
+    if (typeof window.setOrgLocalItem === 'function') {
+        window.setOrgLocalItem('reportingPeriodType', currentReportingPeriodType);
+    }
+    syncReportingPeriodLabelToDOM();
+    refreshDataTableMonthHeaders();
+    calculateAllTotals();
+    if (typeof updateDashboard === 'function') updateDashboard();
+}
+
+function getReportingPeriodLabel() {
+    const y = getReportingYear();
+    if (getReportingPeriodType() === 'financial_uk') {
+        return `Apr ${y} – Mar ${y + 1}`;
+    }
+    return `Jan – Dec ${y}`;
+}
+
+function syncReportingPeriodLabelToDOM() {
+    const label = getReportingPeriodLabel();
+    const periodInput = document.getElementById('reportingPeriodInput');
+    if (periodInput && document.activeElement !== periodInput) {
+        periodInput.value = label;
+    }
+    if (typeof window.setOrgLocalItem === 'function') {
+        window.setOrgLocalItem('reportingPeriod', label);
+    }
+}
+
+function getReportingMonthLabels(lang) {
+    const usePt = (lang || window.appState?.currentLanguage) === 'pt';
+    if (getReportingPeriodType() === 'financial_uk') {
+        return usePt ? FY_MONTH_LABELS_PT.slice() : FY_MONTH_LABELS_EN.slice();
+    }
+    return usePt ? CALENDAR_MONTH_LABELS_PT.slice() : CALENDAR_MONTH_LABELS_EN.slice();
+}
+
+function tagDataTableHeaderCells() {
+    document.querySelectorAll('.data-table thead tr').forEach((tr) => {
+        const ths = Array.from(tr.querySelectorAll('th'));
+        ths.forEach((th, idx) => {
+            if (idx >= 4 && idx <= 15) th.classList.add('month-header');
+            if (idx === 3) th.classList.add('row-display-year-header');
+        });
+    });
+}
+
+function refreshDataTableMonthHeaders() {
+    tagDataTableHeaderCells();
+    const labels = getReportingMonthLabels();
+    document.querySelectorAll('.data-table thead tr').forEach((tr) => {
+        const monthThs = tr.querySelectorAll('th.month-header');
+        labels.forEach((lbl, i) => {
+            if (monthThs[i]) monthThs[i].textContent = lbl;
+        });
+    });
+    document.querySelectorAll('.data-table thead tr').forEach((tr) => {
+        const yearTh = tr.querySelector('th.row-display-year-header');
+        if (yearTh) {
+            const en = 'Display year';
+            const pt = 'Ano (exibição)';
+            yearTh.textContent = (window.appState?.currentLanguage === 'pt' ? pt : en);
+            yearTh.setAttribute('data-en', en);
+            yearTh.setAttribute('data-pt', pt);
+        }
+    });
+}
+
+function getConversionFactorGroupsOpenState() {
+    try {
+        const raw = readOrgPref('conversionFactorGroupsOpen', '{}');
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_e) {
+        return {};
+    }
+}
+
+function setConversionFactorGroupOpen(subgroup, isOpen) {
+    const state = getConversionFactorGroupsOpenState();
+    state[subgroup] = !!isOpen;
+    writeOrgPref('conversionFactorGroupsOpen', JSON.stringify(state));
+    if (typeof window.setOrgLocalItem === 'function') {
+        window.setOrgLocalItem('conversionFactorGroupsOpen', JSON.stringify(state));
+    }
 }
 
 function resolveUiFactorBucket(year) {
@@ -1236,6 +1468,44 @@ function getMonthlyTotalsByCategory() {
     return result;
 }
 
+function getYearlyTotalsByCategory() {
+    const categories = getDataInputCategories();
+    const result = {};
+    const periodType = getReportingPeriodType();
+    const startYear = getReportingYear();
+
+    categories.forEach((category) => {
+        result[category] = {};
+    });
+
+    categories.forEach((category) => {
+        const table = document.getElementById(`${category}Table`);
+        if (!table) return;
+        const unitCategory = resolveUnitCategory(category);
+        table.querySelectorAll('.data-row').forEach((row) => {
+            if (!rowIncludedInReportingPeriod(row)) return;
+            const conversionFactor = getRowConversionFactor(row, `${category}Table`);
+            const rowUnit = row.querySelector('.row-unit-select')?.value || '';
+            let annualTonnes = 0;
+            row.querySelectorAll('.month-input').forEach((input) => {
+                const baseValue = toBaseUnitValue(
+                    unitCategory,
+                    rowUnit,
+                    parseFloat(input.value) || 0
+                );
+                annualTonnes += (baseValue * conversionFactor) / 1000;
+            });
+            const bucketKey =
+                periodType === 'financial_uk'
+                    ? `FY ${startYear}/${String(startYear + 1).slice(-2)}`
+                    : String(startYear);
+            result[category][bucketKey] = (result[category][bucketKey] || 0) + annualTonnes;
+        });
+    });
+
+    return result;
+}
+
 // ============================================
 // YEAR-OVER-YEAR COMPARISON
 // ============================================
@@ -1374,6 +1644,8 @@ function getScopeBreakdown() {
 
                     if (scope1Keys.has(emissionType) || emissionType.startsWith('refrigerant_')) {
                         scope1 += co2Value;
+                    } else if (emissionType === 'electricity_transmission_distribution') {
+                        scope3 += co2Value;
                     } else if (emissionType === 'electricity') {
                         scope2 += co2Value;
                     } else if (inferredCategory === 'water' || inferredCategory === 'waste' || inferredCategory === 'transport' || inferredCategory === 'energy') {
@@ -1427,6 +1699,15 @@ window.carbonCalc = {
     refreshEmissionsUnitLabels,
     setReportingYear,
     getReportingYear,
+    setReportingPeriodType,
+    getReportingPeriodType,
+    getReportingPeriodLabel,
+    syncReportingPeriodLabelToDOM,
+    getReportingMonthLabels,
+    refreshDataTableMonthHeaders,
+    hydrateReportingPeriodFromPrefs,
+    rowIncludedInReportingPeriod,
+    getYearlyTotalsByCategory,
     formatTonnesForDisplay,
     normalizeDisplayToTonnes,
     setCountry,

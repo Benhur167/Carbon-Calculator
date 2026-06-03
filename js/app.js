@@ -57,6 +57,98 @@ const appState = {
 // Render / local API. Streamlit sets window.__CARBON_API_BASE__ when embedded.
 const API_BASE_URL = 'https://carboncalculator-2eak.onrender.com/api';
 
+function getOrgApiHeaders(extraHeaders) {
+    const headers = { ...(extraHeaders || {}) };
+    const token = getActiveAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const orgId = localStorage.getItem('organizationId');
+    if (orgId) headers['X-Organization-Id'] = orgId;
+    return headers;
+}
+window.getOrgApiHeaders = getOrgApiHeaders;
+
+function applyUserSessionFromLogin(user) {
+    if (!user) return;
+    localStorage.setItem('userName', user.full_name || '');
+    localStorage.setItem('isOrgAdmin', user.is_org_admin ? 'true' : 'false');
+    localStorage.setItem('isPlatformAdmin', user.is_platform_admin ? 'true' : 'false');
+    if (user.email) localStorage.setItem('userEmail', user.email);
+}
+
+function selectOrganizationMembership(membership) {
+    if (!membership) return;
+    const orgId = membership.organization_id || '';
+    const orgName = membership.organization_name || membership.company_name || 'My Company';
+    localStorage.setItem('organizationId', orgId);
+    localStorage.setItem('organizationName', orgName);
+    localStorage.setItem('companyName', orgName);
+    ensureOrganizationSession(orgId, orgName);
+}
+
+function showOrgPickerModal(memberships, onChosen) {
+    let overlay = document.getElementById('orgPickerOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'orgPickerOverlay';
+        overlay.className = 'org-picker-overlay';
+        overlay.innerHTML = `
+            <div class="org-picker-card">
+                <h2 data-en="Select organisation" data-pt="Selecionar organização">Select organisation</h2>
+                <p data-en="Choose which organisation to work on." data-pt="Escolha a organização para trabalhar.">Choose which organisation to work on.</p>
+                <div id="orgPickerList" class="org-picker-list"></div>
+            </div>`;
+        document.body.appendChild(overlay);
+    }
+    const list = overlay.querySelector('#orgPickerList');
+    list.innerHTML = '';
+    memberships.forEach((m) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-primary org-picker-btn';
+        btn.textContent = m.organization_name || m.organization_id || 'Organisation';
+        btn.addEventListener('click', () => {
+            overlay.style.display = 'none';
+            onChosen(m);
+        });
+        list.appendChild(btn);
+    });
+    overlay.style.display = 'flex';
+}
+
+function completeLoginFlow(user) {
+    applyUserSessionFromLogin(user);
+    const memberships = Array.isArray(user?.memberships) ? user.memberships : [];
+    if (memberships.length > 1) {
+        showOrgPickerModal(memberships, (chosen) => {
+            selectOrganizationMembership(chosen);
+            enterMainAppAfterLogin(user);
+        });
+        return;
+    }
+    if (memberships.length === 1) {
+        selectOrganizationMembership(memberships[0]);
+    } else if (user) {
+        selectOrganizationMembership({
+            organization_id: user.organization_id,
+            organization_name: user.organization_name || user.company_name,
+        });
+    }
+    enterMainAppAfterLogin(user);
+}
+
+function enterMainAppAfterLogin(user) {
+    const allowOrgMainApp = localStorage.getItem('orgOpenMainApp') === 'true';
+    const isPlatformAdmin = localStorage.getItem('isPlatformAdmin') === 'true';
+    if (user && user.is_org_admin && !isPlatformAdmin && !allowOrgMainApp) {
+        window.location.href = 'organization-users.html';
+        return;
+    }
+    localStorage.removeItem('orgOpenMainApp');
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'flex';
+    initializeApp();
+}
+
 const SESSION_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_EXPIRES_AT_KEY = 'sessionExpiresAt';
 const SESSION_LAST_ACTIVITY_KEY = 'sessionLastActivity';
@@ -199,12 +291,12 @@ function scheduleSiteDataSave() {
 }
 window.scheduleSiteDataSave = scheduleSiteDataSave;
 
-function flushSiteDataSave() {
+function flushSiteDataSave(options) {
     if (siteDataSaveTimer) {
         clearTimeout(siteDataSaveTimer);
         siteDataSaveTimer = null;
     }
-    return saveUserDataToBackend();
+    return saveUserDataToBackend(options);
 }
 window.flushSiteDataSave = flushSiteDataSave;
 
@@ -677,33 +769,7 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
             touchSession();
             startSessionMonitor();
             
-            if (data.user) {
-                localStorage.setItem('userName', data.user.full_name || '');
-                localStorage.setItem('organizationId', data.user.organization_id || '');
-                localStorage.setItem('organizationName', data.user.organization_name || '');
-                localStorage.setItem('isOrgAdmin', data.user.is_org_admin ? 'true' : 'false');
-                if (data.user.email) {
-                    localStorage.setItem('userEmail', data.user.email);
-                }
-                ensureOrganizationSession(
-                    data.user.organization_id || '',
-                    data.user.company_name || 'My Company'
-                );
-                localStorage.setItem('companyName', data.user.company_name || 'My Company');
-            }
-
-            const allowOrgMainApp = localStorage.getItem('orgOpenMainApp') === 'true';
-            if (data.user && data.user.is_org_admin && !allowOrgMainApp) {
-                window.location.href = 'organization-users.html';
-                return;
-            }
-            localStorage.removeItem('orgOpenMainApp');
-            
-            document.getElementById('loginScreen').style.display = 'none';
-            document.getElementById('mainApp').style.display = 'flex';
-
-            // Show the app immediately; initializeApp loads local state then syncs MongoDB in the background.
-            initializeApp();
+            completeLoginFlow(data.user || {});
         } else {
             if (loginError) {
                 loginError.textContent = loginFailureMessage(response.status, data);
@@ -913,10 +979,10 @@ async function loadUserDataFromBackend() {
     try {
         [dataResponse, factorsResponse] = await Promise.all([
             fetch(`${API_BASE_URL}/data`, {
-                headers: { Authorization: `Bearer ${token}` },
+                headers: getOrgApiHeaders(),
             }),
             fetch(`${API_BASE_URL}/factors`, {
-                headers: { Authorization: `Bearer ${token}` },
+                headers: getOrgApiHeaders(),
             }),
         ]);
     } catch (err) {
@@ -1021,12 +1087,39 @@ async function loadUserDataFromBackend() {
 }
 
 async function syncOrganizationDataFromServer() {
-    resetAppStateForCompany(localStorage.getItem('companyName') || 'My Company');
-    rebuildSitesUIFromState();
+    const companyName = localStorage.getItem('companyName') || 'My Company';
     const loadedFromBackend = await loadUserDataFromBackend();
     if (!loadedFromBackend) {
         loadSitesFromLocalStorage();
+        if (!appState.sites || Object.keys(appState.sites).length === 0) {
+            appState.sites = createDefaultSitesState(companyName);
+        }
     }
+    const siteIds = Object.keys(appState.sites || {});
+    if (!appState.currentSite || !appState.sites[appState.currentSite]) {
+        appState.currentSite = siteIds[0] || 'site-1';
+    }
+    rebuildSitesUIFromState();
+}
+
+let dataSaveBannerTimer = null;
+
+function showDataSaveStatus(message, isError) {
+    let el = document.getElementById('dataSaveStatusBanner');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'dataSaveStatusBanner';
+        el.setAttribute('role', 'status');
+        el.className = 'data-save-status-banner';
+        document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.classList.toggle('data-save-status-banner--error', !!isError);
+    el.classList.add('data-save-status-banner--visible');
+    if (dataSaveBannerTimer) clearTimeout(dataSaveBannerTimer);
+    dataSaveBannerTimer = setTimeout(() => {
+        el.classList.remove('data-save-status-banner--visible');
+    }, isError ? 8000 : 3500);
 }
 
 async function saveUserDataToBackend(options) {
@@ -1036,6 +1129,7 @@ async function saveUserDataToBackend(options) {
     if (!token) return false;
 
     const keepalive = options && options.keepalive === true;
+    const silent = options && options.silent === true;
     const payload = JSON.stringify({
         sites: appState.sites,
         org_preferences: window.OrgPreferences?.collectOrgPreferencesFromDOM
@@ -1046,10 +1140,7 @@ async function saveUserDataToBackend(options) {
     try {
         const response = await fetch(`${API_BASE_URL}/data`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
+            headers: getOrgApiHeaders({ 'Content-Type': 'application/json' }),
             body: payload,
             keepalive,
         });
@@ -1060,14 +1151,35 @@ async function saveUserDataToBackend(options) {
         if (!response.ok) {
             const errBody = await response.text().catch(() => '');
             console.error('Failed to save organization data:', response.status, errBody);
+            if (!silent) {
+                const msg =
+                    appState.currentLanguage === 'pt'
+                        ? 'Não foi possível salvar os dados no servidor.'
+                        : 'Could not save data to the server.';
+                showDataSaveStatus(msg, true);
+            }
             return false;
+        }
+        if (!silent && !keepalive) {
+            const okMsg =
+                appState.currentLanguage === 'pt' ? 'Dados salvos.' : 'Data saved.';
+            showDataSaveStatus(okMsg, false);
         }
         return true;
     } catch (err) {
         console.error('Error saving data to backend:', err);
+        if (!silent) {
+            const msg =
+                appState.currentLanguage === 'pt'
+                    ? 'Erro de conexão ao salvar. Verifique se o servidor está ativo.'
+                    : 'Connection error while saving. Is the backend running?';
+            showDataSaveStatus(msg, true);
+        }
         return false;
     }
 }
+
+window.showDataSaveStatus = showDataSaveStatus;
 
 // LOGOUT
 document.getElementById('logoutBtn')?.addEventListener('click', async function() {
@@ -1076,7 +1188,8 @@ document.getElementById('logoutBtn')?.addEventListener('click', async function()
     }
     try {
         if (appState.loggedIn) {
-            await saveUserDataToBackend();
+            if (typeof saveCurrentSiteData === 'function') saveCurrentSiteData();
+            await saveUserDataToBackend({ silent: true });
         }
     } catch (err) {
         console.error('Final sync before logout failed:', err);
@@ -1459,7 +1572,7 @@ function addDataRow(category) {
         <td>${emissionSelectHtml}</td>
         <td><input type="text" placeholder="${placeholder}"></td>
         <td>${getUnitSelectHtml(category, defaultUnit, defaultEmissionKey)}</td>
-        <td><input type="number" value="2025" min="2020" max="2030"></td>
+        <td><input type="number" class="row-display-year" value="${reportYear}" min="2020" max="2030" title="Display only — does not change emission factors or totals"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="2"></td>
@@ -1631,6 +1744,11 @@ function getEmissionSelectHtml(category, selectedKey, year) {
         ],
         energy: [
             { key: 'electricity', labelEn: 'Electricity (grid)', labelPt: 'Eletricidade (rede)' },
+            {
+                key: 'electricity_transmission_distribution',
+                labelEn: 'Electricity (transmission & distribution)',
+                labelPt: 'Eletricidade (transmissão e distribuição)',
+            },
             { key: 'naturalGas', labelEn: 'Natural gas', labelPt: 'Gás natural' },
             { key: 'diesel', labelEn: 'Diesel (generator/boiler)', labelPt: 'Diesel (gerador/caldeira)' },
             { key: 'lpg', labelEn: 'LPG', labelPt: 'GLP' },
@@ -1641,10 +1759,6 @@ function getEmissionSelectHtml(category, selectedKey, year) {
             { key: 'waste_to_energy', labelEn: 'Waste to energy', labelPt: 'Resíduo para energia' },
             { key: 'waste_to_recycling', labelEn: 'Waste to recycling', labelPt: 'Resíduo para reciclagem' },
             { key: 'waste_to_composting', labelEn: 'Waste to composting', labelPt: 'Resíduo para compostagem' },
-            // Backward-compatible aliases for older rows
-            { key: 'waste', labelEn: 'Mixed waste to landfill (legacy)', labelPt: 'Resíduo misto para aterro (legado)' },
-            { key: 'wasteRecycled', labelEn: 'Recycled waste (legacy)', labelPt: 'Resíduo reciclado (legado)' },
-            { key: 'waste_composted', labelEn: 'Composted waste (legacy)', labelPt: 'Resíduo compostado (legado)' }
         ],
         transport: [
             { key: 'transport_petrol', labelEn: 'Company vehicles - petrol', labelPt: 'Veículos - gasolina' },
@@ -1970,18 +2084,45 @@ function loadSiteData(siteId) {
     }, 200);
 }
 
+const WASTE_EMISSION_LEGACY_MAP = {
+    waste: 'waste_landfill',
+    wasteRecycled: 'waste_to_recycling',
+    waste_composted: 'waste_to_composting',
+};
+
+function migrateWasteEmissionType(emissionType) {
+    return WASTE_EMISSION_LEGACY_MAP[emissionType] || emissionType;
+}
+
 function loadRowData(row, data) {
     const inputs = row.querySelectorAll('input');
     const emissionSelect = row.querySelector('.emission-select');
 
     // Inputs: [description, year, months...]
     if (inputs[0]) inputs[0].value = data.description || '';
-    if (inputs[1]) inputs[1].value = data.year || 2025;
-
-    if (emissionSelect && data.emissionType) {
-        emissionSelect.value = data.emissionType;
+    if (inputs[1]) {
+        inputs[1].value =
+            data.year ||
+            window.carbonCalc?.getReportingYear?.() ||
+            new Date().getFullYear();
     }
+
+    let emissionType = data.emissionType;
     const category = row.closest('table')?.id?.replace(/Table$/, '');
+    if (category === 'waste' && emissionType) {
+        emissionType = migrateWasteEmissionType(emissionType);
+        data.emissionType = emissionType;
+    }
+
+    if (emissionSelect && emissionType) {
+        if (!Array.from(emissionSelect.options).some((o) => o.value === emissionType)) {
+            const opt = document.createElement('option');
+            opt.value = emissionType;
+            opt.textContent = window.carbonCalc?.getFactorDisplayLabel?.(emissionType) || emissionType;
+            emissionSelect.appendChild(opt);
+        }
+        emissionSelect.value = emissionType;
+    }
     const emissionKey = emissionSelect?.value || data.emissionType || null;
     if (category && emissionKey && row.cells?.[2]) {
         let preferred = data.unit || getPreferredUnitForCategory(category, emissionKey);
@@ -2851,6 +2992,20 @@ async function initializeApp() {
                 });
             }
         }
+        const reportingPeriodTypeSelect = document.getElementById('reportingPeriodTypeSelect');
+        if (reportingPeriodTypeSelect && window.carbonCalc?.setReportingPeriodType) {
+            reportingPeriodTypeSelect.value =
+                window.carbonCalc.getReportingPeriodType?.() || 'calendar';
+            if (reportingPeriodTypeSelect.dataset.bound !== '1') {
+                reportingPeriodTypeSelect.dataset.bound = '1';
+                reportingPeriodTypeSelect.addEventListener('change', () => {
+                    window.carbonCalc.setReportingPeriodType(reportingPeriodTypeSelect.value);
+                });
+            }
+        }
+        if (window.carbonCalc?.refreshDataTableMonthHeaders) {
+            window.carbonCalc.refreshDataTableMonthHeaders();
+        }
         const outputUnitSelect = document.getElementById('outputUnitSelect');
         if (outputUnitSelect && window.carbonCalc?.getOutputUnit) {
             syncOutputUnitSelectValues(window.carbonCalc.getOutputUnit());
@@ -2941,6 +3096,14 @@ window.addEventListener('DOMContentLoaded', function() {
         document.getElementById('loginScreen').style.display = 'flex';
         document.getElementById('mainApp').style.display = 'none';
     }
+
+    window.addEventListener('beforeunload', () => {
+        if (!appState.loggedIn) return;
+        if (typeof saveCurrentSiteData === 'function') saveCurrentSiteData();
+        if (typeof window.flushSiteDataSave === 'function') {
+            window.flushSiteDataSave({ keepalive: true, silent: true });
+        }
+    });
 });
 
 // ============================================

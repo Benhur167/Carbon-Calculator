@@ -111,6 +111,20 @@
             const countrySelect = document.getElementById('countrySelect');
             if (countrySelect) countrySelect.value = data.carbonCalcCountry;
         }
+        if (global.carbonCalc?.hydrateReportingPeriodFromPrefs) {
+            global.carbonCalc.hydrateReportingPeriodFromPrefs(data);
+        }
+        const periodTypeSel = document.getElementById('reportingPeriodTypeSelect');
+        if (periodTypeSel) {
+            const pt = data.reportingPeriodType === 'financial_uk' ? 'financial_uk' : 'calendar';
+            periodTypeSel.value = pt;
+        }
+        if (global.carbonCalc?.syncReportingPeriodLabelToDOM) {
+            global.carbonCalc.syncReportingPeriodLabelToDOM();
+        }
+        if (global.carbonCalc?.refreshDataTableMonthHeaders) {
+            global.carbonCalc.refreshDataTableMonthHeaders();
+        }
         if (data.carbonCalcReportingYear && global.carbonCalc?.setReportingYear) {
             global.carbonCalc.setReportingYear(data.carbonCalcReportingYear);
             const yr = document.getElementById('reportingYearSelect');
@@ -177,6 +191,13 @@
         }
         if (global.carbonCalc?.getReportingYear) {
             out.carbonCalcReportingYear = String(global.carbonCalc.getReportingYear());
+        }
+        if (global.carbonCalc?.getReportingPeriodType) {
+            out.reportingPeriodType = global.carbonCalc.getReportingPeriodType();
+        }
+        const periodTypeSel = document.getElementById('reportingPeriodTypeSelect');
+        if (periodTypeSel) {
+            out.reportingPeriodType = periodTypeSel.value === 'financial_uk' ? 'financial_uk' : 'calendar';
         }
         if (global.carbonCalc?.getOutputUnit) {
             out.carbonCalcOutputUnit = global.carbonCalc.getOutputUnit();

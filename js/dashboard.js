@@ -176,9 +176,24 @@ function getEmissionCategories() {
 }
 
 function getMonthLabels() {
+    if (window.carbonCalc?.getReportingMonthLabels) {
+        return window.carbonCalc.getReportingMonthLabels(appState.currentLanguage);
+    }
     return appState.currentLanguage === 'en'
         ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         : ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+}
+
+let sourceTrendGranularity = 'monthly';
+
+function bindSourceTrendGranularityControl() {
+    const sel = document.getElementById('sourceTrendGranularity');
+    if (!sel || sel.dataset.bound === '1') return;
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', () => {
+        sourceTrendGranularity = sel.value === 'yearly' ? 'yearly' : 'monthly';
+        updateSourceTrendChart();
+    });
 }
 
 function chartModalTitle(chartId) {
@@ -585,14 +600,26 @@ function updateAccountsCharts() {
 function updatePieChart() {
     const ct = _chartTheme();
     const totals = window.carbonCalc.getCategoryTotals();
-    const keys = Object.keys(totals);
+    const keys = Object.keys(totals).filter((key) => (totals[key] || 0) > 0);
     const labels = keys.map((key) => getCategoryDisplayName(key));
-    const data = Object.values(totals);
+    const data = keys.map((key) => totals[key]);
 
     const ctx = document.getElementById('pieChart');
     if (!ctx) return;
 
     if (pieChart) pieChart.destroy();
+
+    if (!keys.length) {
+        pieChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: [appState.currentLanguage === 'pt' ? 'Sem dados' : 'No data'],
+                datasets: [{ data: [1], backgroundColor: ['#E2E8F0'] }],
+            },
+            options: { plugins: { legend: { display: false } } },
+        });
+        return;
+    }
 
     pieChart = new Chart(ctx, {
         type: 'pie',
@@ -792,13 +819,43 @@ function updateLineChart() {
 
 function updateSourceTrendChart() {
     if (!window.carbonCalc?.getMonthlyTotalsByCategory) return;
+    bindSourceTrendGranularityControl();
     const ct = _chartTheme();
     const cfg = getChartConfig('sourceTrendChart');
     const chartEl = document.getElementById('sourceTrendChart');
     if (!chartEl) return;
-    const dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory();
-    const labels = getMonthLabels();
-    const cats = Object.keys(dataByCategory);
+
+    const titleEl = document.getElementById('sourceTrendChartTitle');
+    const isYearly = sourceTrendGranularity === 'yearly';
+    if (titleEl) {
+        const en = isYearly ? 'Yearly Trend by Source (All)' : 'Monthly Trend by Source (All)';
+        const pt = isYearly ? 'Tendência anual por fonte (todas)' : 'Tendência mensal por fonte (todas)';
+        titleEl.textContent = appState.currentLanguage === 'pt' ? pt : en;
+        titleEl.setAttribute('data-en', en);
+        titleEl.setAttribute('data-pt', pt);
+    }
+
+    let labels;
+    let dataByCategory;
+    if (isYearly && window.carbonCalc.getYearlyTotalsByCategory) {
+        dataByCategory = window.carbonCalc.getYearlyTotalsByCategory();
+        const yearSet = new Set();
+        Object.values(dataByCategory).forEach((byYear) => {
+            Object.keys(byYear || {}).forEach((y) => yearSet.add(y));
+        });
+        labels = Array.from(yearSet).sort();
+    } else {
+        dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory();
+        labels = getMonthLabels();
+    }
+
+    const cats = Object.keys(dataByCategory).filter((cat) => {
+        const series = dataByCategory[cat];
+        if (isYearly) {
+            return Object.values(series || {}).some((v) => v > 0);
+        }
+        return (series || []).some((v) => v > 0);
+    });
     const defaultColors = defaultPaletteColors(cats.length);
 
     if (sourceTrendChart) sourceTrendChart.destroy();
@@ -808,7 +865,11 @@ function updateSourceTrendChart() {
             labels,
             datasets: cats.map((cat, idx) => ({
                 label: getCategoryDisplayName(cat),
-                data: (dataByCategory[cat] || []).map(convertTonnesToDisplayValue),
+                data: isYearly
+                    ? labels.map((yr) =>
+                          convertTonnesToDisplayValue((dataByCategory[cat] || {})[yr] || 0)
+                      )
+                    : (dataByCategory[cat] || []).map(convertTonnesToDisplayValue),
                 borderColor: cfg.datasetColors?.[cat] || defaultColors[idx],
                 tension: 0.35,
                 fill: false,

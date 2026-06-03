@@ -719,16 +719,69 @@ def _find_user_by_email(users_col, email: str):
     return users_col.find_one({'email': email.strip()})
 
 
-def _find_user_by_username(users_col, username: str):
+def _find_user_by_username(users_col, username: str, organization_id: str | None = None):
     if not username or users_col is None:
         return None
     uname = _normalize_username(username)
     if not uname:
         return None
-    user = users_col.find_one({'username': uname})
+    query = {'username': uname}
+    if organization_id:
+        query['organization_id'] = organization_id
+    user = users_col.find_one(query)
     if user:
         return user
-    return users_col.find_one({'username': username.strip()})
+    query_legacy = {'username': username.strip()}
+    if organization_id:
+        query_legacy['organization_id'] = organization_id
+    return users_col.find_one(query_legacy)
+
+
+def _user_memberships(user: dict | None) -> list:
+    if not user:
+        return []
+    raw = user.get('memberships')
+    if isinstance(raw, list) and raw:
+        out = []
+        for m in raw:
+            if not isinstance(m, dict):
+                continue
+            oid = m.get('organization_id')
+            if not oid:
+                continue
+            out.append({
+                'organization_id': str(oid),
+                'organization_name': m.get('organization_name') or '',
+                'role': m.get('role') or ('admin' if m.get('is_org_admin') else 'user'),
+                'username': m.get('username') or user.get('username'),
+            })
+        return out
+    oid = user.get('organization_id')
+    if oid:
+        return [{
+            'organization_id': str(oid),
+            'organization_name': user.get('organization_name') or user.get('company_name') or '',
+            'role': 'admin' if user.get('is_org_admin') else 'user',
+            'username': user.get('username'),
+        }]
+    return []
+
+
+def _resolve_request_organization_id(user: dict | None) -> str | None:
+    if not user:
+        return None
+    if user.get('is_platform_admin'):
+        header_org = (request.headers.get('X-Organization-Id') or '').strip()
+        if header_org:
+            return header_org
+    memberships = _user_memberships(user)
+    active = (request.headers.get('X-Organization-Id') or '').strip()
+    if active:
+        if user.get('is_platform_admin') or any(
+            m.get('organization_id') == active for m in memberships
+        ):
+            return active
+    return user.get('active_organization_id') or user.get('organization_id')
 
 
 def _find_user_by_login(users_col, identifier: str):
@@ -1130,6 +1183,12 @@ def signup():
         "organization_id": org_id,
         "organization_name": company_name,
         "is_org_admin": True,
+        "memberships": [{
+            "organization_id": org_id,
+            "organization_name": company_name,
+            "role": "admin",
+            "username": username or em.split('@')[0],
+        }],
         "created_at": now,
         "email_verified": True,
     })
@@ -1176,6 +1235,12 @@ def login():
             if org_doc:
                 org_name = org_doc.get("name")
 
+        memberships = _user_memberships(user)
+        default_org = memberships[0] if memberships else None
+        if default_org:
+            org_id = default_org.get('organization_id') or org_id
+            org_name = default_org.get('organization_name') or org_name
+
         return jsonify({
             "access_token": access_token,
             "user": {
@@ -1186,6 +1251,8 @@ def login():
                 "organization_id": org_id,
                 "organization_name": org_name,
                 "is_org_admin": bool(user.get('is_org_admin')),
+                "is_platform_admin": bool(user.get('is_platform_admin')),
+                "memberships": memberships,
             }
         }), 200
     
@@ -1255,21 +1322,27 @@ def org_users():
         return jsonify({"msg": "Passwords do not match"}), 400
     if not _is_strong_password(password):
         return jsonify({"msg": "Password must include at least one lowercase letter, one uppercase letter, and one number."}), 400
-    if _find_user_by_username(users_col, username):
-        return jsonify({"msg": "Username already exists"}), 400
-    if email and _find_user_by_email(users_col, email):
-        return jsonify({"msg": "Email already exists"}), 400
+    org_id = current_user.get("organization_id")
+    if _find_user_by_username(users_col, username, org_id):
+        return jsonify({"msg": "Username already exists in this organization"}), 400
 
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
     now = utc_now()
+    membership = {
+        "organization_id": org_id,
+        "organization_name": current_user.get("organization_name"),
+        "role": "user",
+        "username": username,
+    }
     users_col.insert_one({
         "email": email or None,
         "username": username,
         "password": hashed_password,
         "full_name": full_name,
         "phone": phone,
-        "organization_id": current_user.get("organization_id"),
+        "organization_id": org_id,
         "organization_name": current_user.get("organization_name"),
+        "memberships": [membership],
         "is_org_admin": False,
         "created_at": now,
         # Child users are managed by org admin; no verification step required.
@@ -1393,7 +1466,7 @@ def get_user_data():
     current_identity = get_jwt_identity()
     users_col = get_users_col()
     user = _find_user_by_login(users_col, current_identity) if users_col is not None else None
-    org_id = user.get("organization_id") if user else None
+    org_id = _resolve_request_organization_id(user) if user else None
     if not org_id:
         return jsonify({"msg": "Organization is not linked to this account."}), 400
 
@@ -1430,7 +1503,7 @@ def save_user_data():
 
     users_col = get_users_col()
     user = _find_user_by_login(users_col, current_identity) if users_col is not None else None
-    org_id = user.get("organization_id") if user else None
+    org_id = _resolve_request_organization_id(user) if user else None
     user_email = user.get("email") if user else None
     if not org_id:
         return jsonify({"msg": "Organization is not linked to this account."}), 400
@@ -1668,6 +1741,33 @@ def build_final_report_docx_bytes(payload: dict) -> tuple[bytes, str]:
     out_bytes = _docx_with_document_xml(template_bytes, doc_bytes, logo_png)
     file_name = f"Final_Report_{organization_name}_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')}.docx"
     return out_bytes, file_name
+
+
+def _require_platform_admin(users_col):
+    current_identity = get_jwt_identity()
+    current_user = _find_user_by_login(users_col, current_identity) if current_identity else None
+    if not current_user:
+        return None, (jsonify({"msg": "Invalid auth user"}), 401)
+    if not current_user.get('is_platform_admin'):
+        return None, (jsonify({"msg": "Platform admin access required"}), 403)
+    return current_user, None
+
+
+@app.route('/api/admin/organizations', methods=['GET'])
+@jwt_required()
+def list_all_organizations():
+    users_col = get_users_col()
+    orgs_col = get_orgs_col()
+    if users_col is None or orgs_col is None:
+        return jsonify({"msg": "Database connection error"}), 503
+    _admin, err = _require_platform_admin(users_col)
+    if err:
+        return err
+    docs = list(orgs_col.find({}, {'name': 1, 'created_at': 1}).sort('name', 1))
+    for d in docs:
+        if d.get('_id') is not None:
+            d['_id'] = str(d['_id'])
+    return jsonify({"organizations": docs}), 200
 
 
 @app.route('/api/reports/final', methods=['POST'])

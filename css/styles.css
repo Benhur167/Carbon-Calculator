@@ -950,6 +950,120 @@ body {
     flex-wrap: wrap;
 }
 
+.conversion-factor-group-toggle {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    padding: 4px 6px;
+}
+
+.conversion-factor-group-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.conversion-factor-bulk-btn {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.conversion-factor-bulk-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.conversion-factor-group-body {
+    margin-top: 4px;
+}
+
+.conversion-factor-subgroup {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.conversion-factor-subgroup-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0 0 6px;
+}
+
+.chart-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chart-granularity-select {
+    min-width: 110px;
+    font-size: 12px;
+}
+
+.data-save-status-banner {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 10000;
+    padding: 10px 16px;
+    border-radius: 8px;
+    background: #0f766e;
+    color: #fff;
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.data-save-status-banner--visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.data-save-status-banner--error {
+    background: #b91c1c;
+}
+
+.org-picker-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20000;
+    background: rgba(15, 23, 42, 0.65);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.org-picker-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 420px;
+    width: 100%;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.org-picker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.org-picker-btn {
+    width: 100%;
+    text-align: left;
+}
+
 .conversion-factor-group-header h3 {
     margin: 0;
     flex: 1;

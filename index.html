@@ -326,8 +326,15 @@
                                 <input type="text" id="projectNumberInput" placeholder="e.g. Project 123" value=""/>
                             </div>
                             <div class="form-inline-group">
+                                <label for="reportingPeriodTypeSelect" data-en="Reporting period type" data-pt="Tipo de período">Reporting period type</label>
+                                <select id="reportingPeriodTypeSelect">
+                                    <option value="calendar" data-en="Calendar year (Jan–Dec)" data-pt="Ano civil (jan–dez)">Calendar year (Jan–Dec)</option>
+                                    <option value="financial_uk" data-en="Financial year UK (Apr–Mar)" data-pt="Ano fiscal UK (abr–mar)">Financial year UK (Apr–Mar)</option>
+                                </select>
+                            </div>
+                            <div class="form-inline-group">
                                 <label data-en="Reporting Period" data-pt="Período de Relato">Reporting Period</label>
-                                <input type="text" id="reportingPeriodInput" placeholder="e.g. 2024 (FY)" value=""/>
+                                <input type="text" id="reportingPeriodInput" placeholder="e.g. Jan–Dec 2024" value="" readonly title="Auto-generated from period type and reporting year"/>
                             </div>
                             <div class="form-inline-group">
                                 <label data-en="Issue Date" data-pt="Data de Emissão">Issue Date</label>
@@ -1003,10 +1010,16 @@
                             </div>
                             <div class="chart-card full-width widget-card" data-widget="source-trend-chart">
                                 <div class="chart-header">
-                                    <h3 data-en="Monthly Trend by Source (All)" data-pt="Tendência mensal por fonte (todas)">Monthly Trend by Source (All)</h3>
-                                    <button type="button" class="chart-style-btn" onclick="openChartStyleModal('sourceTrendChart')" title="Customize chart colors and font">
-                                        <i class="fas fa-palette"></i>
-                                    </button>
+                                    <h3 id="sourceTrendChartTitle" data-en="Monthly Trend by Source (All)" data-pt="Tendência mensal por fonte (todas)">Monthly Trend by Source (All)</h3>
+                                    <div class="chart-header-actions">
+                                        <select id="sourceTrendGranularity" class="toolbar-control toolbar-select chart-granularity-select" title="Monthly or yearly view">
+                                            <option value="monthly" data-en="Monthly" data-pt="Mensal">Monthly</option>
+                                            <option value="yearly" data-en="Yearly" data-pt="Anual">Yearly</option>
+                                        </select>
+                                        <button type="button" class="chart-style-btn" onclick="openChartStyleModal('sourceTrendChart')" title="Customize chart colors and font">
+                                            <i class="fas fa-palette"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 <canvas id="sourceTrendChart"></canvas>
                                 <button class="widget-hide" onclick="toggleWidget(this)"><i class="fas fa-eye-slash"></i></button>

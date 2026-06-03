@@ -8,6 +8,19 @@
 // ============================================
 
 function exportToPDF() {
+    if (typeof window.generateFinalReportDOCX === 'function') {
+        const en = window.appState?.currentLanguage !== 'pt';
+        const useStatement = confirm(
+            en
+                ? 'Export the Carbon Emission Statement (Word template)?\n\nOK = download statement DOCX (recommended)\nCancel = quick summary PDF'
+                : 'Exportar o Relatório de Emissões (modelo Word)?\n\nOK = baixar DOCX do relatório (recomendado)\nCancelar = PDF resumido rápido'
+        );
+        if (useStatement) {
+            window.generateFinalReportDOCX();
+            return;
+        }
+    }
+
     // Check if jsPDF is loaded
     if (!window.jspdf) {
         alert('PDF export library is loading. Please wait a moment and try again.');
