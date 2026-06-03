@@ -1066,6 +1066,10 @@ function refreshFinancialYearMonthHighlights() {
 
 /** Calendar months per category/year while UK FY view is active (persisted saves use this). */
 let calendarMonthSnapshot = null;
+/** Snapshot taken at calendar→FY switch (used to restore calendar view). */
+let preFyCaptureSnapshot = null;
+/** category → Set of row years auto-added for UK FY (removed on switch back). */
+let fyAutoAddedYears = new Map();
 
 function emptyMonthArray() {
     return Array(12).fill(0);
@@ -1077,6 +1081,16 @@ function cloneMonthArray(months) {
         const v = src[i];
         return Number.isFinite(Number(v)) ? Number(v) : 0;
     });
+}
+
+function cloneCalendarSnapshot(snap) {
+    const out = new Map();
+    snap.forEach((catMap, category) => {
+        const m = new Map();
+        catMap.forEach((months, year) => m.set(year, cloneMonthArray(months)));
+        out.set(category, m);
+    });
+    return out;
 }
 
 function captureCalendarMonthSnapshotFromDom() {
@@ -1094,6 +1108,59 @@ function captureCalendarMonthSnapshotFromDom() {
     });
     calendarMonthSnapshot = snap;
     return snap;
+}
+
+/** Add row (minYear − 1) when missing so Jan–Mar of minYear can sit on the prior FY row. */
+function ensurePriorFinancialYearRows(snap) {
+    if (typeof window.addDataRow !== 'function') return;
+
+    getDataInputCategories().forEach((category) => {
+        const table = document.getElementById(`${category}Table`);
+        if (!table) return;
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+
+        const catMap = snap.get(category) || new Map();
+        const years = Array.from(catMap.keys()).sort((a, b) => a - b);
+        if (!years.length) return;
+
+        const minY = years[0];
+        const priorY = minY - 1;
+        const rowsByYear = getRowsByYearForTable(table);
+        if (rowsByYear.has(priorY)) return;
+
+        const cur = catMap.get(minY) || emptyMonthArray();
+        if (!cur[0] && !cur[1] && !cur[2]) return;
+
+        const templateRow = table.querySelector('.data-row');
+        window.addDataRow(category);
+        const row = tbody.lastElementChild;
+        if (!row) return;
+
+        const yearInput = row.querySelector('.row-display-year');
+        if (yearInput) yearInput.value = priorY;
+        if (templateRow) {
+            const srcEm = templateRow.querySelector('.emission-select');
+            const dstEm = row.querySelector('.emission-select');
+            if (srcEm?.value && dstEm) dstEm.value = srcEm.value;
+        }
+
+        if (!fyAutoAddedYears.has(category)) fyAutoAddedYears.set(category, new Set());
+        fyAutoAddedYears.get(category).add(priorY);
+    });
+}
+
+function removeFinancialYearAutoAddedRows() {
+    fyAutoAddedYears.forEach((years, category) => {
+        const table = document.getElementById(`${category}Table`);
+        if (!table) return;
+        const rowsByYear = getRowsByYearForTable(table);
+        years.forEach((y) => {
+            const row = rowsByYear.get(y);
+            if (row) row.remove();
+        });
+    });
+    fyAutoAddedYears = new Map();
 }
 
 function getCalendarMonthsFromSnapshot(category, year) {
@@ -1164,17 +1231,22 @@ function applyFinancialYearMonthShift() {
 }
 
 function restoreCalendarMonthViewFromSnapshot() {
-    if (!calendarMonthSnapshot) return;
+    const snap = preFyCaptureSnapshot || calendarMonthSnapshot;
+    if (!snap) return;
+
+    removeFinancialYearAutoAddedRows();
+
     getDataInputCategories().forEach((category) => {
         const table = document.getElementById(`${category}Table`);
         if (!table) return;
-        const catMap = calendarMonthSnapshot.get(category) || new Map();
+        const catMap = snap.get(category) || new Map();
         table.querySelectorAll('.data-row').forEach((row) => {
             const y = getRowYear(row);
             if (y == null) return;
             setRowMonthsFromCalendarMonth(row, catMap.get(y) || emptyMonthArray());
         });
     });
+    preFyCaptureSnapshot = null;
     calendarMonthSnapshot = null;
 }
 
@@ -1184,7 +1256,9 @@ function syncFinancialYearViewAfterDataLoad() {
         refreshFinancialYearMonthHighlights();
         return;
     }
-    captureCalendarMonthSnapshotFromDom();
+    const snap = captureCalendarMonthSnapshotFromDom();
+    if (!preFyCaptureSnapshot) preFyCaptureSnapshot = cloneCalendarSnapshot(snap);
+    ensurePriorFinancialYearRows(snap);
     applyFinancialYearMonthShift();
     refreshFinancialYearMonthHighlights();
 }
@@ -1429,7 +1503,10 @@ function setReportingPeriodType(type) {
     if (prevType === 'financial_uk' && nextType === 'calendar') {
         restoreCalendarMonthViewFromSnapshot();
     } else if (prevType === 'calendar' && nextType === 'financial_uk') {
-        captureCalendarMonthSnapshotFromDom();
+        fyAutoAddedYears = new Map();
+        const snap = captureCalendarMonthSnapshotFromDom();
+        preFyCaptureSnapshot = cloneCalendarSnapshot(snap);
+        ensurePriorFinancialYearRows(snap);
     }
 
     currentReportingPeriodType = nextType;
@@ -1722,12 +1799,6 @@ function calculateCategoryTotal(table) {
     }
     table.querySelectorAll('.data-row').forEach((row) => {
         if (getRowYear(row) == null) return;
-        if (
-            getReportingPeriodType() === 'financial_uk' &&
-            getRowYear(row) !== getReportingYear()
-        ) {
-            return;
-        }
         categoryTotal += Number(row.dataset.co2Tonnes || 0);
     });
 
@@ -1751,8 +1822,8 @@ function updateCategorySummaryPeriodHint(categoryName) {
     const basePt = meta?.summaryPt || baseEn;
     const y = getReportingYear();
     if (getReportingPeriodType() === 'financial_uk') {
-        const en = `${baseEn} (Apr ${y} – Mar ${y + 1}, ${y} factors)`;
-        const pt = `${basePt} (abr ${y} – mar ${y + 1}, fatores ${y})`;
+        const en = `${baseEn} (Apr–Mar columns, ${y} factors)`;
+        const pt = `${basePt} (colunas abr–mar, fatores ${y})`;
         summarySpan.textContent = window.appState?.currentLanguage === 'pt' ? pt : en;
         summarySpan.setAttribute('data-en', en);
         summarySpan.setAttribute('data-pt', pt);
@@ -1813,9 +1884,15 @@ function sumCategoryTonnesFromInputs(category, minYear, maxYear) {
     let total = 0;
     table.querySelectorAll('.data-row').forEach((row) => {
         const year = getRowYear(row);
-        if (year !== getReportingYear()) return;
-        if (minYear != null && (year == null || year < minYear)) return;
-        if (maxYear != null && (year == null || year > maxYear)) return;
+        if (year == null) return;
+        if (
+            getReportingPeriodType() !== 'financial_uk' &&
+            year !== getReportingYear()
+        ) {
+            return;
+        }
+        if (minYear != null && year < minYear) return;
+        if (maxYear != null && year > maxYear) return;
         const conversionFactor = getRowConversionFactor(row, `${category}Table`);
         const rowUnit = row.querySelector('.row-unit-select')?.value || '';
         row.querySelectorAll('.month-input').forEach((input) => {
