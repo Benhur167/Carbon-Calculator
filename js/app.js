@@ -42,11 +42,171 @@ function normalizeAllSitesDataShape() {
     });
 }
 
+function currentSiteStorageKey(orgId) {
+    return `carbonCalcCurrentSite_${orgId || 'default'}`;
+}
+
+function persistCurrentSiteId() {
+    const orgId = localStorage.getItem('organizationId') || 'default';
+    if (appState.currentSite) {
+        localStorage.setItem(currentSiteStorageKey(orgId), appState.currentSite);
+    }
+}
+
+function restoreCurrentSiteId() {
+    const orgId = localStorage.getItem('organizationId') || 'default';
+    const saved = localStorage.getItem(currentSiteStorageKey(orgId));
+    if (saved && appState.sites && appState.sites[saved]) {
+        appState.currentSite = saved;
+    }
+}
+
+function readLocalSitesCache(orgId) {
+    const key = `carbonCalcSites_${orgId || 'default'}`;
+    const raw = localStorage.getItem(key) || localStorage.getItem(LEGACY_SITES_CACHE_KEY);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_e) {
+        return null;
+    }
+}
+
+function isDataInputRowMeaningful(row) {
+    if (!row || typeof row !== 'object') return false;
+    if (String(row.description || '').trim()) return true;
+    if (row.emissionType) return true;
+    const months = Array.isArray(row.months) ? row.months : [];
+    return months.some((v) => Number(v) > 0);
+}
+
+function isDataInputCategoryMeaningful(rows) {
+    return Array.isArray(rows) && rows.some(isDataInputRowMeaningful);
+}
+
+function cloneDataInputRows(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.map((row) => ({
+        description: row.description || '',
+        year: row.year,
+        months: Array.isArray(row.months) ? [...row.months] : [],
+        emissionType: row.emissionType ?? null,
+        unit: row.unit || '',
+    }));
+}
+
+function mergeSiteDataInputCategories(targetSite, localSite) {
+    if (!targetSite || !localSite) return targetSite;
+    if (typeof window.ensureDefaultSiteData === 'function') {
+        window.ensureDefaultSiteData(targetSite);
+        window.ensureDefaultSiteData(localSite);
+    }
+    getDataInputCategoryList().forEach((category) => {
+        const serverRows = targetSite.data?.[category];
+        const localRows = localSite.data?.[category];
+        if (!isDataInputCategoryMeaningful(serverRows) && isDataInputCategoryMeaningful(localRows)) {
+            targetSite.data[category] = cloneDataInputRows(localRows);
+        }
+    });
+    return targetSite;
+}
+
+function mergeSitesPreferNonEmptyLocal(serverSites, localSites) {
+    if (!localSites || typeof localSites !== 'object') return serverSites;
+    const merged = { ...(serverSites || {}) };
+    Object.keys(localSites).forEach((siteId) => {
+        if (!merged[siteId]) {
+            merged[siteId] = localSites[siteId];
+            return;
+        }
+        merged[siteId] = mergeSiteDataInputCategories(merged[siteId], localSites[siteId]);
+    });
+    return merged;
+}
+
+function syncCanonicalBeforeSiteSave() {
+    if (window.carbonCalc?.syncCanonicalCalendarBeforeSave) {
+        window.carbonCalc.syncCanonicalCalendarBeforeSave();
+    } else if (window.carbonCalc?.syncCanonicalCalendarFromDom) {
+        window.carbonCalc.syncCanonicalCalendarFromDom();
+    }
+}
+
+function extractDataInputRowFromDom(category, row) {
+    const rowYear =
+        window.carbonCalc?.getRowYear?.(row) ??
+        parseInt(row.querySelector('.row-display-year')?.value, 10);
+    if (!Number.isFinite(rowYear)) return null;
+    if (window.carbonCalc?.isFinancialYearAutoAddedRow?.(category, rowYear)) {
+        return null;
+    }
+
+    const emissionSelect = row.querySelector('.emission-select');
+    const unitSelect = row.querySelector('.row-unit-select');
+
+    let months = [];
+    if (window.carbonCalc?.getCanonicalCalendarMonths) {
+        const fromCanon = window.carbonCalc.getCanonicalCalendarMonths(category, rowYear);
+        if (fromCanon) months = fromCanon;
+    }
+    if (!months.length && window.carbonCalc?.readRowMonthsForSave) {
+        months = window.carbonCalc.readRowMonthsForSave(row);
+    } else if (!months.length) {
+        row.querySelectorAll('.month-input').forEach((input) => {
+            months.push(parseFloat(input.value) || 0);
+        });
+    }
+
+    return {
+        description: row.querySelector('input[type="text"]')?.value || '',
+        year: rowYear,
+        months,
+        emissionType: emissionSelect ? emissionSelect.value : null,
+        unit: unitSelect
+            ? unitSelect.value
+            : getPreferredUnitForCategory(category, emissionSelect ? emissionSelect.value : null),
+    };
+}
+
+function collectCategoryRowsForSite(site, category) {
+    const previousRows = cloneDataInputRows(site.data?.[category]);
+    const table = document.getElementById(`${category}Table`);
+    if (!table) {
+        return previousRows;
+    }
+
+    const nextRows = [];
+    table.querySelectorAll('.data-row').forEach((row) => {
+        const rowData = extractDataInputRowFromDom(category, row);
+        if (rowData) nextRows.push(rowData);
+    });
+
+    if (!isDataInputCategoryMeaningful(nextRows) && isDataInputCategoryMeaningful(previousRows)) {
+        return previousRows;
+    }
+    return nextRows;
+}
+
+function collectCurrentSiteDataInput(site) {
+    if (!site) return;
+    syncCanonicalBeforeSiteSave();
+
+    if (!site.data || typeof site.data !== 'object') {
+        site.data = createEmptySiteData();
+    }
+
+    getDataInputCategoryList().forEach((category) => {
+        site.data[category] = collectCategoryRowsForSite(site, category);
+    });
+}
+
 // Global State
 const appState = {
     currentLanguage: 'en',
     darkMode: false,
     loggedIn: false,
+    dataHydrated: false,
     currentSite: 'site-1',
     sites: {
         'site-1': {
@@ -336,7 +496,8 @@ function flushSiteDataSave(options) {
         clearTimeout(siteDataSaveTimer);
         siteDataSaveTimer = null;
     }
-    return saveUserDataToBackend(options);
+    const opts = { ...(options || {}), force: true };
+    return saveUserDataToBackend(opts);
 }
 window.flushSiteDataSave = flushSiteDataSave;
 
@@ -1075,26 +1236,20 @@ async function loadUserDataFromBackend() {
                 'My Company';
             const serverSites = data.sites && typeof data.sites === 'object' ? data.sites : {};
             const hasServerSites = Object.keys(serverSites).length > 0;
+            const orgId = data.organization_id || localStorage.getItem('organizationId') || 'default';
+            const localSites = readLocalSitesCache(orgId);
+
             if (hasServerSites) {
-                appState.sites = serverSites;
+                appState.sites = localSites
+                    ? mergeSitesPreferNonEmptyLocal(serverSites, localSites)
+                    : serverSites;
                 normalizeAllSitesDataShape();
             } else {
-                const orgId = data.organization_id || localStorage.getItem('organizationId') || 'default';
-                const localKey = `carbonCalcSites_${orgId}`;
-                const localRaw =
-                    localStorage.getItem(localKey) || localStorage.getItem(LEGACY_SITES_CACHE_KEY);
                 let migratedFromLocal = false;
-                if (localRaw) {
-                    try {
-                        const localSites = JSON.parse(localRaw);
-                        if (localSites && typeof localSites === 'object' && Object.keys(localSites).length > 0) {
-                            appState.sites = localSites;
-                            migratedFromLocal = true;
-                            normalizeAllSitesDataShape();
-                        }
-                    } catch (_e) {
-                        /* ignore */
-                    }
+                if (localSites && Object.keys(localSites).length > 0) {
+                    appState.sites = localSites;
+                    migratedFromLocal = true;
+                    normalizeAllSitesDataShape();
                 }
                 if (!migratedFromLocal) {
                     appState.sites = createDefaultSitesState(companyName);
@@ -1102,6 +1257,7 @@ async function loadUserDataFromBackend() {
                     scheduleSiteDataSave();
                 }
             }
+            restoreCurrentSiteId();
             saveSitesToLocalStorage();
             sitesLoaded = true;
 
@@ -1132,12 +1288,6 @@ async function loadUserDataFromBackend() {
                         window.OrgPreferences.hydrateFromServer({});
                     }
                 }
-            }
-            if (
-                window.carbonCalc?.syncFinancialYearViewAfterDataLoad &&
-                appState.currentSite
-            ) {
-                window.carbonCalc.syncFinancialYearViewAfterDataLoad();
             }
         }
     } catch (err) {
@@ -1172,6 +1322,7 @@ async function syncOrganizationDataFromServer() {
         normalizeAllSitesDataShape();
     }
     const siteIds = Object.keys(appState.sites || {});
+    restoreCurrentSiteId();
     if (!appState.currentSite || !appState.sites[appState.currentSite]) {
         appState.currentSite = siteIds[0] || 'site-1';
     }
@@ -1199,6 +1350,7 @@ function showDataSaveStatus(message, isError) {
 
 async function saveUserDataToBackend(options) {
     if (!appState.loggedIn) return false;
+    if (!appState.dataHydrated && !(options && options.force === true)) return false;
 
     const token = getActiveAuthToken();
     if (!token) return false;
@@ -1206,6 +1358,7 @@ async function saveUserDataToBackend(options) {
     if (typeof saveCurrentSiteData === 'function') {
         saveCurrentSiteData();
     }
+    saveSitesToLocalStorage();
     if (siteDataSaveTimer) {
         clearTimeout(siteDataSaveTimer);
         siteDataSaveTimer = null;
@@ -1273,10 +1426,11 @@ document.getElementById('logoutBtn')?.addEventListener('click', async function()
     try {
         if (appState.loggedIn) {
             if (typeof saveCurrentSiteData === 'function') saveCurrentSiteData();
+            saveSitesToLocalStorage();
             if (typeof flushSiteDataSave === 'function') {
-                await flushSiteDataSave({ silent: true, keepalive: true });
+                await flushSiteDataSave({ silent: true, force: true });
             } else {
-                await saveUserDataToBackend({ silent: true, keepalive: true });
+                await saveUserDataToBackend({ silent: true, force: true });
             }
         }
     } catch (err) {
@@ -2191,6 +2345,7 @@ function loadSitesFromLocalStorage(options) {
         appState.sites = createDefaultSitesState(localStorage.getItem('companyName'));
     }
     normalizeAllSitesDataShape();
+    restoreCurrentSiteId();
     if (rebuildUI) {
         rebuildSitesUIFromState();
     }
@@ -2392,71 +2547,7 @@ function saveCurrentSiteData() {
         site.companyName = nameInput.value || '';
     }
     
-    if (window.carbonCalc?.syncCanonicalCalendarBeforeSave) {
-        window.carbonCalc.syncCanonicalCalendarBeforeSave();
-    }
-
-    if (!site.data || typeof site.data !== 'object') {
-        site.data = createEmptySiteData();
-    }
-
-    // Save data for each category (always calendar Jan–Dec; FY rows are display-only).
-    // If a table is not in the DOM yet, keep the in-memory rows (avoid wiping on partial saves).
-    getDataInputCategoryList().forEach(category => {
-        const table = document.getElementById(`${category}Table`);
-        if (!table) {
-            if (!Array.isArray(site.data[category])) {
-                site.data[category] = [];
-            }
-            return;
-        }
-        const rows = table.querySelectorAll('.data-row');
-        const nextRows = [];
-
-        rows.forEach(row => {
-                const rowYear =
-                    window.carbonCalc?.getRowYear?.(row) ??
-                    parseInt(row.querySelector('.row-display-year')?.value, 10);
-                if (
-                    window.carbonCalc?.isFinancialYearAutoAddedRow?.(category, rowYear)
-                ) {
-                    return;
-                }
-
-                const emissionSelect = row.querySelector('.emission-select');
-                const unitSelect = row.querySelector('.row-unit-select');
-                const monthInputs = row.querySelectorAll('.month-input');
-                
-                const rowData = {
-                    description: row.querySelector('input[type="text"]')?.value || '',
-                    year: Number.isFinite(rowYear)
-                        ? rowYear
-                        : window.carbonCalc?.getReportingYear?.() || 2025,
-                    months: [],
-                    emissionType: emissionSelect ? emissionSelect.value : null,
-                    unit: unitSelect
-                        ? unitSelect.value
-                        : getPreferredUnitForCategory(
-                              category,
-                              emissionSelect ? emissionSelect.value : null
-                          )
-                };
-                
-                if (window.carbonCalc?.readRowMonthsForSave) {
-                    rowData.months = window.carbonCalc.readRowMonthsForSave(row);
-                } else if (window.carbonCalc?.getRowMonthsByCalendarMonth) {
-                    rowData.months = window.carbonCalc.getRowMonthsByCalendarMonth(row);
-                } else {
-                    monthInputs.forEach((input) => {
-                        rowData.months.push(parseFloat(input.value) || 0);
-                    });
-                }
-                
-                nextRows.push(rowData);
-            });
-
-        site.data[category] = nextRows;
-    });
+    collectCurrentSiteDataInput(site);
 
     // Save per-tab additional question notes.
     if (!site.tabQuestions || typeof site.tabQuestions !== 'object') {
@@ -3024,6 +3115,8 @@ document.getElementById('logoUpload')?.addEventListener('change', function(e) {
 // ============================================
 
 async function initializeApp() {
+    appState.dataHydrated = false;
+
     // Initialize theme palette UI first so it's ready for toggleDarkMode calls
     if (typeof window.initCarbonPaletteUI === 'function') {
         window.initCarbonPaletteUI();
@@ -3279,12 +3372,20 @@ async function initializeApp() {
 
     // Auto-save every 5 seconds to local storage and backend
     setInterval(() => {
-        if (appState.loggedIn) {
+        if (appState.loggedIn && appState.dataHydrated) {
             saveCurrentSiteData();
-            saveUserDataToBackend();
+            saveUserDataToBackend({ silent: true });
         }
     }, 5000);
 
+    if (appState.loggedIn) {
+        saveCurrentSiteData();
+        saveSitesToLocalStorage();
+    }
+    appState.dataHydrated = true;
+    if (appState.loggedIn) {
+        saveUserDataToBackend({ silent: true, force: true });
+    }
     console.log('✅ Carbon Calculator Phase 1 initialized successfully!');
 }
 
@@ -3367,10 +3468,11 @@ window.addEventListener('DOMContentLoaded', function() {
     }
 
     const flushOnPageExit = () => {
-        if (!appState.loggedIn) return;
+        if (!appState.loggedIn || !appState.dataHydrated) return;
         if (typeof saveCurrentSiteData === 'function') saveCurrentSiteData();
+        saveSitesToLocalStorage();
         if (typeof window.flushSiteDataSave === 'function') {
-            window.flushSiteDataSave({ keepalive: true, silent: true });
+            window.flushSiteDataSave({ keepalive: true, silent: true, force: true });
         }
     };
     window.addEventListener('beforeunload', flushOnPageExit);
@@ -3467,9 +3569,10 @@ window.copyQaSummary = copyQaSummary;
 
 // Prevent data loss on page unload
 window.addEventListener('beforeunload', function() {
-    if (!appState.loggedIn) return;
+    if (!appState.loggedIn || !appState.dataHydrated) return;
     saveCurrentSiteData();
-    flushSiteDataSave();
+    saveSitesToLocalStorage();
+    flushSiteDataSave({ keepalive: true, silent: true, force: true });
 });
 
 
