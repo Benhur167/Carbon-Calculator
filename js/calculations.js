@@ -1064,6 +1064,22 @@ function getRowMonthsByCalendarMonth(row) {
     return readRowMonthsFromDom(row);
 }
 
+/** Months for persistence (Jan–Dec per row year). Calendar year: live DOM; UK FY: canonical store after sync. */
+function readRowMonthsForSave(row) {
+    const category = resolveCategoryFromTableId(row.closest('table')?.id);
+    const year = getRowYear(row);
+    if (
+        getReportingPeriodType() === 'financial_uk' &&
+        category &&
+        year != null &&
+        calendarMonthSnapshot
+    ) {
+        const fromCanon = getCanonicalCalendarMonths(category, year);
+        if (fromCanon) return fromCanon;
+    }
+    return cloneMonthArray(readRowMonthsFromDom(row));
+}
+
 function isFinancialYearAutoAddedRow(category, year) {
     const y = Number(year);
     if (!Number.isFinite(y)) return false;
@@ -1169,17 +1185,24 @@ function cloneMonthArray(months) {
 }
 
 function syncCanonicalCalendarFromDom() {
+    const prior = calendarMonthSnapshot;
     const snap = new Map();
     getDataInputCategories().forEach((category) => {
         const table = document.getElementById(`${category}Table`);
         const catMap = new Map();
-        if (table) {
-            table.querySelectorAll('.data-row').forEach((row) => {
-                const y = getRowYear(row);
-                if (y == null || isFinancialYearAutoAddedRow(category, y)) return;
-                catMap.set(y, cloneMonthArray(readRowMonthsFromDom(row)));
-            });
+        if (!table) {
+            const priorCat = prior?.get(category);
+            if (priorCat) {
+                priorCat.forEach((months, y) => catMap.set(y, cloneMonthArray(months)));
+            }
+            snap.set(category, catMap);
+            return;
         }
+        table.querySelectorAll('.data-row').forEach((row) => {
+            const y = getRowYear(row);
+            if (y == null || isFinancialYearAutoAddedRow(category, y)) return;
+            catMap.set(y, cloneMonthArray(readRowMonthsFromDom(row)));
+        });
         snap.set(category, catMap);
     });
     calendarMonthSnapshot = snap;
@@ -1262,6 +1285,9 @@ function refreshCalendarSnapshotFromFinancialDom() {
         const catMap = new Map();
         const priorCat = prior?.get(category);
         if (!table) {
+            if (priorCat) {
+                priorCat.forEach((months, y) => catMap.set(y, cloneMonthArray(months)));
+            }
             snap.set(category, catMap);
             return;
         }
@@ -2372,6 +2398,7 @@ window.carbonCalc = {
     getReportingMonthLabels,
     refreshDataTableMonthHeaders,
     getRowMonthsByCalendarMonth,
+    readRowMonthsForSave,
     setRowMonthsFromCalendarMonth,
     isMonthInReportingPeriod,
     syncFinancialYearViewAfterDataLoad,

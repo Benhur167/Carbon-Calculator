@@ -1388,6 +1388,15 @@ function initializeTabs() {
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             const tabName = btn.getAttribute('data-tab');
+            const prevTab = document.querySelector('.tab-btn.active')?.getAttribute('data-tab');
+            if (
+                prevTab &&
+                prevTab !== tabName &&
+                getDataInputCategoryList().includes(prevTab) &&
+                typeof saveCurrentSiteData === 'function'
+            ) {
+                saveCurrentSiteData();
+            }
             setActiveTab(tabName);
         });
     });
@@ -2387,12 +2396,8 @@ function saveCurrentSiteData() {
                           )
                 };
                 
-                if (window.carbonCalc?.getCanonicalCalendarMonths) {
-                    rowData.months =
-                        window.carbonCalc.getCanonicalCalendarMonths(category, rowData.year) ||
-                        (window.carbonCalc.getRowMonthsByCalendarMonth
-                            ? window.carbonCalc.getRowMonthsByCalendarMonth(row)
-                            : []);
+                if (window.carbonCalc?.readRowMonthsForSave) {
+                    rowData.months = window.carbonCalc.readRowMonthsForSave(row);
                 } else if (window.carbonCalc?.getRowMonthsByCalendarMonth) {
                     rowData.months = window.carbonCalc.getRowMonthsByCalendarMonth(row);
                 } else {
