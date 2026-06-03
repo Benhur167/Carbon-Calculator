@@ -2086,7 +2086,9 @@ function loadSiteData(siteId) {
     if (window.carbonCalc?.refreshDataTableMonthHeaders) {
         window.carbonCalc.refreshDataTableMonthHeaders();
     }
-    if (window.carbonCalc?.refreshFinancialYearMonthHighlights) {
+    if (window.carbonCalc?.syncFinancialYearViewAfterDataLoad) {
+        window.carbonCalc.syncFinancialYearViewAfterDataLoad();
+    } else if (window.carbonCalc?.refreshFinancialYearMonthHighlights) {
         window.carbonCalc.refreshFinancialYearMonthHighlights();
     }
     
@@ -2200,6 +2202,13 @@ function saveCurrentSiteData() {
         site.companyName = nameInput.value || '';
     }
     
+    if (
+        window.carbonCalc?.getReportingPeriodType?.() === 'financial_uk' &&
+        window.carbonCalc?.refreshCalendarSnapshotFromFinancialDom
+    ) {
+        window.carbonCalc.refreshCalendarSnapshotFromFinancialDom();
+    }
+
     // Save data for each category
     getDataInputCategoryList().forEach(category => {
         const table = document.getElementById(`${category}Table`);
