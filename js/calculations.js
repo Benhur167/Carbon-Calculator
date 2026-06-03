@@ -711,12 +711,12 @@ function rebuildConversionFactorCheckboxes() {
         const text = document.createElement('span');
         text.className = 'conversion-factor-label';
         text.textContent = label;
-        text.title = 'Unit options apply per factor';
         labelEl.appendChild(cb);
         labelEl.appendChild(text);
         row.appendChild(labelEl);
         row.appendChild(createConversionFactorUnitSelect(key));
         container.appendChild(row);
+        return cb;
     };
 
     const buildGroupShell = (subgroup, titles) => {
@@ -738,31 +738,31 @@ function rebuildConversionFactorCheckboxes() {
         h3.setAttribute('data-en', titles.en);
         h3.setAttribute('data-pt', titles.pt);
 
-        const actions = document.createElement('div');
-        actions.className = 'conversion-factor-group-actions';
-        const selectAllBtn = document.createElement('button');
-        selectAllBtn.type = 'button';
-        selectAllBtn.className = 'conversion-factor-bulk-btn';
-        selectAllBtn.textContent = 'Select all';
-        selectAllBtn.setAttribute('data-en', 'Select all');
-        selectAllBtn.setAttribute('data-pt', 'Selecionar todos');
-        const deselectAllBtn = document.createElement('button');
-        deselectAllBtn.type = 'button';
-        deselectAllBtn.className = 'conversion-factor-bulk-btn';
-        deselectAllBtn.textContent = 'Deselect all';
-        deselectAllBtn.setAttribute('data-en', 'Deselect all');
-        deselectAllBtn.setAttribute('data-pt', 'Desmarcar todos');
-        actions.appendChild(selectAllBtn);
-        actions.appendChild(deselectAllBtn);
+        const selectAllWrap = document.createElement('label');
+        selectAllWrap.className = 'conversion-factor-group-select-all-wrap';
+        const groupSelectAll = document.createElement('input');
+        groupSelectAll.type = 'checkbox';
+        groupSelectAll.className = 'conversion-factor-group-select-all';
+        groupSelectAll.setAttribute(
+            'aria-label',
+            `Select all factors in ${titles.en}`
+        );
+        const selectAllText = document.createElement('span');
+        selectAllText.className = 'conversion-factor-group-select-all-text';
+        selectAllText.textContent = 'All';
+        selectAllText.setAttribute('data-en', 'All');
+        selectAllText.setAttribute('data-pt', 'Todos');
+        selectAllWrap.appendChild(groupSelectAll);
+        selectAllWrap.appendChild(selectAllText);
 
         header.appendChild(toggleBtn);
+        header.appendChild(selectAllWrap);
         header.appendChild(h3);
         if (window.AssessmentScopeUnits?.createConversionFactorGroupUnitSelect) {
             header.appendChild(
                 window.AssessmentScopeUnits.createConversionFactorGroupUnitSelect(subgroup)
             );
         }
-        header.appendChild(actions);
         group.appendChild(header);
 
         const body = document.createElement('div');
@@ -776,6 +776,19 @@ function rebuildConversionFactorCheckboxes() {
             ? 'fas fa-chevron-down'
             : 'fas fa-chevron-right';
 
+        const syncGroupSelectAll = () => {
+            const boxes = body.querySelectorAll('.conversion-factor-checkbox');
+            const total = boxes.length;
+            if (!total) {
+                groupSelectAll.checked = false;
+                groupSelectAll.indeterminate = false;
+                return;
+            }
+            const checkedCount = Array.from(boxes).filter((cb) => cb.checked).length;
+            groupSelectAll.checked = checkedCount === total;
+            groupSelectAll.indeterminate = checkedCount > 0 && checkedCount < total;
+        };
+
         const setGroupOpen = (open) => {
             body.hidden = !open;
             toggleBtn.setAttribute('aria-expanded', String(open));
@@ -786,18 +799,15 @@ function rebuildConversionFactorCheckboxes() {
         };
 
         toggleBtn.addEventListener('click', () => setGroupOpen(body.hidden));
-        selectAllBtn.addEventListener('click', () => {
+        groupSelectAll.addEventListener('change', () => {
+            const next = groupSelectAll.checked;
             body.querySelectorAll('.conversion-factor-checkbox').forEach((cb) => {
-                cb.checked = true;
+                cb.checked = next;
             });
-        });
-        deselectAllBtn.addEventListener('click', () => {
-            body.querySelectorAll('.conversion-factor-checkbox').forEach((cb) => {
-                cb.checked = false;
-            });
+            groupSelectAll.indeterminate = false;
         });
 
-        return { group, body };
+        return { group, body, syncGroupSelectAll };
     };
 
     ASSESSMENT_FACTOR_SUBGROUP_ORDER.forEach((subgroup) => {
@@ -808,12 +818,17 @@ function rebuildConversionFactorCheckboxes() {
             en: humanizeFactorKey(subgroup),
             pt: humanizeFactorKey(subgroup),
         };
-        const { group, body } = buildGroupShell(subgroup, titles);
+        const { group, body, syncGroupSelectAll } = buildGroupShell(subgroup, titles);
+
+        const bindRowCheckbox = (rowCb) => {
+            if (!rowCb) return;
+            rowCb.addEventListener('change', syncGroupSelectAll);
+        };
 
         if (subgroup === 'freight') {
             const sea = items.filter(({ key }) => CARGO_SHIP_FACTOR_KEYS.includes(key));
             const other = items.filter(({ key }) => !CARGO_SHIP_FACTOR_KEYS.includes(key));
-            other.forEach(({ key, label }) => appendFactorRow(body, key, label));
+            other.forEach(({ key, label }) => bindRowCheckbox(appendFactorRow(body, key, label)));
             if (sea.length) {
                 const sub = document.createElement('div');
                 sub.className = 'conversion-factor-subgroup';
@@ -822,15 +837,15 @@ function rebuildConversionFactorCheckboxes() {
                 subTitle.textContent = 'Sea freight (cargo ship)';
                 subTitle.setAttribute('data-en', 'Sea freight (cargo ship)');
                 subTitle.setAttribute('data-pt', 'Frete marítimo (navio cargueiro)');
-                subTitle.title = 'Factors per tonne-km';
                 sub.appendChild(subTitle);
-                sea.forEach(({ key, label }) => appendFactorRow(sub, key, label));
+                sea.forEach(({ key, label }) => bindRowCheckbox(appendFactorRow(sub, key, label)));
                 body.appendChild(sub);
             }
         } else {
-            items.forEach(({ key, label }) => appendFactorRow(body, key, label));
+            items.forEach(({ key, label }) => bindRowCheckbox(appendFactorRow(body, key, label)));
         }
 
+        syncGroupSelectAll();
         host.appendChild(group);
     });
 }

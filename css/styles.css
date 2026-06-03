@@ -921,18 +921,23 @@ body {
 /* Conversion Factors UI */
 .conversion-factor-grid {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    flex-wrap: nowrap;
     gap: 16px;
     margin-top: 8px;
+    width: 100%;
 }
 
 .conversion-factor-group {
-    flex: 1;
-    min-width: 220px;
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 10px;
     padding: 12px 14px;
+    box-sizing: border-box;
 }
 
 .conversion-factor-group h3 {
@@ -958,25 +963,25 @@ body {
     padding: 4px 6px;
 }
 
-.conversion-factor-group-actions {
-    display: flex;
+.conversion-factor-group-select-all-wrap {
+    display: inline-flex;
+    align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
-}
-
-.conversion-factor-bulk-btn {
-    font-size: 11px;
-    padding: 4px 8px;
-    border-radius: 6px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-card);
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--text-secondary);
     cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
 }
 
-.conversion-factor-bulk-btn:hover {
-    border-color: var(--primary-color);
-    color: var(--primary-color);
+.conversion-factor-group-select-all {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    cursor: pointer;
+    accent-color: var(--primary-color);
 }
 
 .conversion-factor-group-body {
@@ -994,6 +999,10 @@ body {
     font-weight: 600;
     color: var(--text-secondary);
     margin: 0 0 6px;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.35;
 }
 
 .chart-header-actions {
@@ -1066,14 +1075,19 @@ body {
 
 .conversion-factor-group-header h3 {
     margin: 0;
-    flex: 1;
-    min-width: 100px;
+    flex: 1 1 12rem;
+    min-width: 8rem;
     font-size: 14px;
     font-weight: 700;
     color: #fff;
     padding: 8px 12px;
     background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-dark) 100%);
     border-radius: 6px;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.35;
+    overflow: visible;
 }
 
 .conversion-factor-group-unit {
@@ -1103,11 +1117,22 @@ body {
 
 .conversion-factor-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 10px;
-    padding: 6px 0;
+    padding: 8px 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.conversion-factor-row .conversion-factor-label-wrap {
+    flex: 1 1 12rem;
+    min-width: min(100%, 12rem);
+}
+
+.conversion-factor-row .conversion-factor-unit {
+    flex: 0 0 auto;
+    margin-left: auto;
 }
 
 .conversion-factor-row:last-child {
@@ -1116,18 +1141,30 @@ body {
 
 .conversion-factor-label-wrap {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
     font-size: 13px;
     color: var(--text-secondary);
 }
 
+.conversion-factor-label-wrap input[type="checkbox"] {
+    margin-top: 3px;
+    flex-shrink: 0;
+    accent-color: var(--primary-color);
+}
+
 .conversion-factor-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+    overflow: visible;
+    text-overflow: unset;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.4;
+    hyphens: auto;
 }
 
 .conversion-factor-unit {
