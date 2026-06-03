@@ -924,6 +924,8 @@ let currentReportingPeriodType = readOrgPref('reportingPeriodType', 'calendar') 
 
 const CALENDAR_MONTH_LABELS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const CALENDAR_MONTH_LABELS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+/** UK FY table columns: Apr–Dec (calendar 3–11) then Jan–Mar (calendar 0–2, usually year+1). */
+const FY_DISPLAY_SLOT_TO_CALENDAR_MONTH = [3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2];
 function getRowsByYearForTable(table) {
     const map = new Map();
     if (!table) return map;
@@ -969,16 +971,33 @@ function isMonthInReportingPeriod(row, monthIndex) {
     if (rowYear == null) return false;
 
     if (getReportingPeriodType() === 'financial_uk') {
-        return true;
+        return rowYear === getReportingYear();
     }
     return rowYear === getReportingYear();
 }
 
-/** Visual highlight for UK FY rows (Apr–Dec and Jan–Mar on each year row). */
+/** Visual highlight for UK FY rows (all Apr–Mar columns on the reporting-year row). */
 function isMonthHighlightedForFinancialYear(row, monthIndex) {
     const m = Number(monthIndex);
     if (!Number.isInteger(m) || m < 0 || m > 11) return false;
-    return getRowYear(row) != null && (m <= 2 || m >= 3);
+    return getRowYear(row) === getReportingYear();
+}
+
+/** Read month values from the DOM keyed by calendar month (Jan=0 … Dec=11). */
+function readRowMonthsFromDom(row) {
+    const out = Array(12).fill(0);
+    row.querySelectorAll('.month-input').forEach((input, slot) => {
+        if (slot > 11) return;
+        const cal = Number.parseInt(input.dataset.month, 10);
+        const idx =
+            Number.isFinite(cal) && cal >= 0 && cal <= 11
+                ? cal
+                : getReportingPeriodType() === 'financial_uk'
+                  ? FY_DISPLAY_SLOT_TO_CALENDAR_MONTH[slot]
+                  : slot;
+        out[idx] = parseFloat(input.value) || 0;
+    });
+    return out;
 }
 
 function getRowMonthsByCalendarMonth(row) {
@@ -988,16 +1007,7 @@ function getRowMonthsByCalendarMonth(row) {
         const fromSnap = getCalendarMonthsFromSnapshot(category, year);
         if (fromSnap) return fromSnap;
     }
-
-    const inputs = Array.from(row.querySelectorAll('.month-input'));
-    const out = Array(12).fill(0);
-    inputs.forEach((input, slot) => {
-        if (slot > 11) return;
-        const cal = Number.parseInt(input.dataset.month, 10);
-        const idx = Number.isFinite(cal) && cal >= 0 && cal <= 11 ? cal : slot;
-        out[idx] = parseFloat(input.value) || 0;
-    });
-    return out;
+    return readRowMonthsFromDom(row);
 }
 
 function setRowMonthsFromCalendarMonth(row, months) {
@@ -1010,14 +1020,30 @@ function setRowMonthsFromCalendarMonth(row, months) {
     });
 }
 
+/** Write UK FY column order (Apr–Mar) for one financial year row. */
+function setRowMonthsFinancialYearDisplay(row, calY, calNext) {
+    const yMonths = Array.isArray(calY) ? calY : emptyMonthArray();
+    const nextMonths = Array.isArray(calNext) ? calNext : emptyMonthArray();
+    row.querySelectorAll('.month-input').forEach((input, slot) => {
+        if (slot > 11) return;
+        const cal = FY_DISPLAY_SLOT_TO_CALENDAR_MONTH[slot];
+        const src = slot >= 9 ? nextMonths : yMonths;
+        const val = src[cal];
+        input.dataset.month = String(cal);
+        input.value = val != null && val !== '' && Number(val) !== 0 ? val : '';
+    });
+}
+
 function syncAllRowMonthDataAttributes() {
+    const isFy = getReportingPeriodType() === 'financial_uk';
     getDataInputCategories().forEach((category) => {
         const table = document.getElementById(`${category}Table`);
         if (!table) return;
         table.querySelectorAll('.data-row').forEach((row) => {
             row.querySelectorAll('.month-input').forEach((input, slot) => {
                 if (slot > 11) return;
-                input.dataset.month = String(slot);
+                const cal = isFy ? FY_DISPLAY_SLOT_TO_CALENDAR_MONTH[slot] : slot;
+                input.dataset.month = String(cal);
             });
         });
     });
@@ -1061,7 +1087,7 @@ function captureCalendarMonthSnapshotFromDom() {
         if (table) {
             table.querySelectorAll('.data-row').forEach((row) => {
                 const y = getRowYear(row);
-                if (y != null) catMap.set(y, cloneMonthArray(getRowMonthsByCalendarMonth(row)));
+                if (y != null) catMap.set(y, cloneMonthArray(readRowMonthsFromDom(row)));
             });
         }
         snap.set(category, catMap);
@@ -1096,23 +1122,15 @@ function refreshCalendarSnapshotFromFinancialDom() {
         const years = Array.from(rowsByYear.keys()).sort((a, b) => a - b);
         years.forEach((y) => {
             const row = rowsByYear.get(y);
-            const dom = cloneMonthArray(getRowMonthsByCalendarMonth(row));
+            const byCal = cloneMonthArray(readRowMonthsFromDom(row));
             const cal = emptyMonthArray();
-            cal[3] = dom[3];
-            cal[4] = dom[4];
-            cal[5] = dom[5];
-            cal[6] = dom[6];
-            cal[7] = dom[7];
-            cal[8] = dom[8];
-            cal[9] = dom[9];
-            cal[10] = dom[10];
-            cal[11] = dom[11];
+            for (let m = 3; m < 12; m++) cal[m] = byCal[m];
             const prevRow = rowsByYear.get(y - 1);
             if (prevRow) {
-                const prevDom = cloneMonthArray(getRowMonthsByCalendarMonth(prevRow));
-                cal[0] = prevDom[0];
-                cal[1] = prevDom[1];
-                cal[2] = prevDom[2];
+                const prevByCal = cloneMonthArray(readRowMonthsFromDom(prevRow));
+                cal[0] = prevByCal[0];
+                cal[1] = prevByCal[1];
+                cal[2] = prevByCal[2];
             } else if (priorCat?.has(y)) {
                 const old = priorCat.get(y);
                 cal[0] = old[0];
@@ -1127,7 +1145,7 @@ function refreshCalendarSnapshotFromFinancialDom() {
     calendarMonthSnapshot = snap;
 }
 
-/** UK FY view on row Y: Jan–Mar from calendar year Y+1 (or 0), Apr–Dec from calendar year Y. */
+/** UK FY view on row Y: columns Apr–Mar; Jan–Mar from calendar year Y+1 when available. */
 function applyFinancialYearMonthShift() {
     const snap = calendarMonthSnapshot || captureCalendarMonthSnapshotFromDom();
 
@@ -1140,12 +1158,7 @@ function applyFinancialYearMonthShift() {
             if (y == null) return;
             const calY = catMap.get(y) || emptyMonthArray();
             const calNext = catMap.get(y + 1) || emptyMonthArray();
-            const fyView = emptyMonthArray();
-            fyView[0] = calNext[0];
-            fyView[1] = calNext[1];
-            fyView[2] = calNext[2];
-            for (let m = 3; m < 12; m++) fyView[m] = calY[m];
-            setRowMonthsFromCalendarMonth(row, fyView);
+            setRowMonthsFinancialYearDisplay(row, calY, calNext);
         });
     });
 }
@@ -1397,9 +1410,6 @@ function rowIncludedInReportingPeriod(row) {
     const rowYear = getRowYear(row);
     if (rowYear == null) return false;
 
-    if (getReportingPeriodType() === 'financial_uk') {
-        return true;
-    }
     return rowYear === getReportingYear();
 }
 
@@ -1420,10 +1430,13 @@ function setReportingPeriodType(type) {
         restoreCalendarMonthViewFromSnapshot();
     } else if (prevType === 'calendar' && nextType === 'financial_uk') {
         captureCalendarMonthSnapshotFromDom();
-        applyFinancialYearMonthShift();
     }
 
     currentReportingPeriodType = nextType;
+
+    if (nextType === 'financial_uk' && prevType === 'calendar') {
+        applyFinancialYearMonthShift();
+    }
     writeOrgPref('reportingPeriodType', currentReportingPeriodType);
     if (typeof window.setOrgLocalItem === 'function') {
         window.setOrgLocalItem('reportingPeriodType', currentReportingPeriodType);
@@ -1457,7 +1470,11 @@ function syncReportingPeriodLabelToDOM() {
 
 function getReportingMonthLabels(lang) {
     const usePt = (lang || window.appState?.currentLanguage) === 'pt';
-    return usePt ? CALENDAR_MONTH_LABELS_PT.slice() : CALENDAR_MONTH_LABELS_EN.slice();
+    const cal = usePt ? CALENDAR_MONTH_LABELS_PT : CALENDAR_MONTH_LABELS_EN;
+    if (getReportingPeriodType() === 'financial_uk') {
+        return FY_DISPLAY_SLOT_TO_CALENDAR_MONTH.map((m) => cal[m]);
+    }
+    return cal.slice();
 }
 
 function tagDataTableHeaderCells() {
@@ -1702,16 +1719,17 @@ function calculateCategoryTotal(table) {
 
     if (getReportingPeriodType() === 'financial_uk') {
         refreshCalendarSnapshotFromFinancialDom();
-        table.querySelectorAll('.data-row').forEach((row) => {
-            if (getRowYear(row) == null) return;
-            categoryTotal += Number(row.dataset.co2Tonnes || 0);
-        });
-    } else {
-        table.querySelectorAll('.data-row').forEach((row) => {
-            if (getRowYear(row) !== getReportingYear()) return;
-            categoryTotal += Number(row.dataset.co2Tonnes || 0);
-        });
     }
+    table.querySelectorAll('.data-row').forEach((row) => {
+        if (getRowYear(row) == null) return;
+        if (
+            getReportingPeriodType() === 'financial_uk' &&
+            getRowYear(row) !== getReportingYear()
+        ) {
+            return;
+        }
+        categoryTotal += Number(row.dataset.co2Tonnes || 0);
+    });
 
     const summaryElement = document.getElementById(`${categoryName}Total`);
 
@@ -1731,16 +1749,16 @@ function updateCategorySummaryPeriodHint(categoryName) {
     const meta = window.DATA_TAB_META?.[categoryName];
     const baseEn = meta?.summaryEn || `Total ${categoryName} emissions`;
     const basePt = meta?.summaryPt || baseEn;
+    const y = getReportingYear();
     if (getReportingPeriodType() === 'financial_uk') {
-        const en = `${baseEn} (all financial years in table)`;
-        const pt = `${basePt} (todos os anos fiscais na tabela)`;
+        const en = `${baseEn} (Apr ${y} – Mar ${y + 1}, ${y} factors)`;
+        const pt = `${basePt} (abr ${y} – mar ${y + 1}, fatores ${y})`;
         summarySpan.textContent = window.appState?.currentLanguage === 'pt' ? pt : en;
         summarySpan.setAttribute('data-en', en);
         summarySpan.setAttribute('data-pt', pt);
     } else {
-        const y = getReportingYear();
-        const en = `${baseEn} (${y})`;
-        const pt = `${basePt} (${y})`;
+        const en = `${baseEn} (${y} factors)`;
+        const pt = `${basePt} (fatores ${y})`;
         summarySpan.textContent = window.appState?.currentLanguage === 'pt' ? pt : en;
         summarySpan.setAttribute('data-en', en);
         summarySpan.setAttribute('data-pt', pt);
@@ -1790,19 +1808,6 @@ function getRowYear(row) {
 function sumCategoryTonnesFromInputs(category, minYear, maxYear) {
     const table = document.getElementById(`${category}Table`);
     if (!table) return 0;
-
-    if (getReportingPeriodType() === 'financial_uk') {
-        refreshCalendarSnapshotFromFinancialDom();
-        let total = 0;
-        table.querySelectorAll('.data-row').forEach((row) => {
-            const year = getRowYear(row);
-            if (year == null) return;
-            if (minYear != null && year < minYear) return;
-            if (maxYear != null && year > maxYear) return;
-            total += Number(row.dataset.co2Tonnes || 0);
-        });
-        return total;
-    }
 
     const unitCategory = resolveUnitCategory(category);
     let total = 0;
@@ -1893,12 +1898,7 @@ function getMonthlyTotals() {
             rows.forEach((row) => {
                 const monthInputs = row.querySelectorAll('.month-input');
                 const conversionFactor = getRowConversionFactor(row, `${category}Table`);
-                if (
-                    getReportingPeriodType() !== 'financial_uk' &&
-                    getRowYear(row) !== getReportingYear()
-                ) {
-                    return;
-                }
+                if (getRowYear(row) !== getReportingYear()) return;
 
                 monthInputs.forEach((input, index) => {
                     const value = parseFloat(input.value) || 0;
@@ -1923,12 +1923,7 @@ function getMonthlyTotalsByCategory() {
         if (!table) return;
         const unitCategory = resolveUnitCategory(category);
         table.querySelectorAll('.data-row').forEach((row) => {
-            if (
-                getReportingPeriodType() !== 'financial_uk' &&
-                getRowYear(row) !== getReportingYear()
-            ) {
-                return;
-            }
+            if (getRowYear(row) !== getReportingYear()) return;
             const conversionFactor = getRowConversionFactor(row, `${category}Table`);
             const rowUnit = row.querySelector('.row-unit-select')?.value || '';
             row.querySelectorAll('.month-input').forEach((input, idx) => {
