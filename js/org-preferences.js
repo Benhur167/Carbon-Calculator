@@ -125,6 +125,9 @@
         if (global.carbonCalc?.refreshDataTableMonthHeaders) {
             global.carbonCalc.refreshDataTableMonthHeaders();
         }
+        if (global.carbonCalc?.syncFinancialYearViewAfterDataLoad) {
+            global.carbonCalc.syncFinancialYearViewAfterDataLoad();
+        }
         if (data.carbonCalcReportingYear && global.carbonCalc?.setReportingYear) {
             global.carbonCalc.setReportingYear(data.carbonCalcReportingYear);
             if (global.carbonCalc.syncReportingYearSelects) {

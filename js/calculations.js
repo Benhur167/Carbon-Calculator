@@ -1541,15 +1541,15 @@ function setReportingPeriodType(type) {
 
     if (prevType === 'financial_uk' && nextType === 'calendar') {
         restoreCalendarMonthViewFromSnapshot();
-    } else if (prevType === 'calendar' && nextType === 'financial_uk') {
+    } else if (nextType === 'financial_uk') {
         fyAutoAddedYears = new Map();
         syncCanonicalCalendarFromDom();
-        ensurePriorFinancialYearRows(calendarMonthSnapshot);
     }
 
     currentReportingPeriodType = nextType;
 
-    if (nextType === 'financial_uk' && prevType === 'calendar') {
+    if (nextType === 'financial_uk') {
+        ensurePriorFinancialYearRows(calendarMonthSnapshot);
         applyFinancialYearMonthShift();
     }
     writeOrgPref('reportingPeriodType', currentReportingPeriodType);

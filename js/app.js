@@ -1077,6 +1077,12 @@ async function loadUserDataFromBackend() {
                     }
                 }
             }
+            if (
+                window.carbonCalc?.syncFinancialYearViewAfterDataLoad &&
+                appState.currentSite
+            ) {
+                window.carbonCalc.syncFinancialYearViewAfterDataLoad();
+            }
         }
     } catch (err) {
         console.error('Error parsing sites data from backend:', err);
@@ -3068,6 +3074,9 @@ async function initializeApp() {
         }
         if (window.carbonCalc?.refreshDataTableMonthHeaders) {
             window.carbonCalc.refreshDataTableMonthHeaders();
+        }
+        if (window.carbonCalc?.syncFinancialYearViewAfterDataLoad) {
+            window.carbonCalc.syncFinancialYearViewAfterDataLoad();
         }
         const outputUnitSelect = document.getElementById('outputUnitSelect');
         if (outputUnitSelect && window.carbonCalc?.getOutputUnit) {
