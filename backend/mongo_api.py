@@ -2158,6 +2158,9 @@ def _list_organizations_api(orgs_col):
     return [_org_doc_to_api(d) for d in docs if _org_doc_to_api(d)]
 
 
+PLATFORM_ADMIN_EMAIL = 'platform-admin@system.local'
+
+
 def ensure_default_platform_admin():
     """Ensure platform admin (username admin / password 12345) exists when seeding is enabled."""
     if os.environ.get('SEED_PLATFORM_ADMIN', '1').lower() in ('0', 'false', 'no'):
@@ -2170,7 +2173,7 @@ def ensure_default_platform_admin():
     existing = _find_user_by_username(users_col, username)
     doc = {
         'username': username,
-        'email': None,
+        'email': PLATFORM_ADMIN_EMAIL,
         'password': hashed,
         'full_name': 'Platform Admin',
         'is_platform_admin': True,
@@ -2184,6 +2187,7 @@ def ensure_default_platform_admin():
         users_col.update_one(
             {'_id': existing['_id']},
             {'$set': {
+                'email': existing.get('email') or PLATFORM_ADMIN_EMAIL,
                 'password': hashed,
                 'is_platform_admin': True,
                 'is_org_admin': False,

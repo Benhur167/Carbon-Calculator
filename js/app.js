@@ -24,6 +24,24 @@ function getDataInputCategoryList() {
     return window.DATA_INPUT_CATEGORIES || DEFAULT_DATA_INPUT_KEYS;
 }
 
+/** Create dynamic data-input tab panels before reading/writing table DOM. */
+function ensureDataInputDomReady() {
+    if (typeof window.initDynamicDataTabs === 'function') {
+        window.initDynamicDataTabs();
+    } else if (typeof window.initTransportSubTabs === 'function') {
+        window.initTransportSubTabs();
+    }
+}
+
+function normalizeAllSitesDataShape() {
+    if (!appState.sites || typeof appState.sites !== 'object') return;
+    Object.values(appState.sites).forEach((site) => {
+        if (typeof window.ensureDefaultSiteData === 'function') {
+            window.ensureDefaultSiteData(site);
+        }
+    });
+}
+
 // Global State
 const appState = {
     currentLanguage: 'en',
@@ -1059,10 +1077,12 @@ async function loadUserDataFromBackend() {
             const hasServerSites = Object.keys(serverSites).length > 0;
             if (hasServerSites) {
                 appState.sites = serverSites;
+                normalizeAllSitesDataShape();
             } else {
                 const orgId = data.organization_id || localStorage.getItem('organizationId') || 'default';
                 const localKey = `carbonCalcSites_${orgId}`;
-                const localRaw = localStorage.getItem(localKey);
+                const localRaw =
+                    localStorage.getItem(localKey) || localStorage.getItem(LEGACY_SITES_CACHE_KEY);
                 let migratedFromLocal = false;
                 if (localRaw) {
                     try {
@@ -1070,6 +1090,7 @@ async function loadUserDataFromBackend() {
                         if (localSites && typeof localSites === 'object' && Object.keys(localSites).length > 0) {
                             appState.sites = localSites;
                             migratedFromLocal = true;
+                            normalizeAllSitesDataShape();
                         }
                     } catch (_e) {
                         /* ignore */
@@ -1144,16 +1165,16 @@ async function syncOrganizationDataFromServer() {
     const companyName = localStorage.getItem('companyName') || 'My Company';
     const loadedFromBackend = await loadUserDataFromBackend();
     if (!loadedFromBackend) {
-        loadSitesFromLocalStorage();
+        loadSitesFromLocalStorage({ rebuildUI: false });
         if (!appState.sites || Object.keys(appState.sites).length === 0) {
             appState.sites = createDefaultSitesState(companyName);
         }
+        normalizeAllSitesDataShape();
     }
     const siteIds = Object.keys(appState.sites || {});
     if (!appState.currentSite || !appState.sites[appState.currentSite]) {
         appState.currentSite = siteIds[0] || 'site-1';
     }
-    rebuildSitesUIFromState();
 }
 
 let dataSaveBannerTimer = null;
@@ -1252,7 +1273,11 @@ document.getElementById('logoutBtn')?.addEventListener('click', async function()
     try {
         if (appState.loggedIn) {
             if (typeof saveCurrentSiteData === 'function') saveCurrentSiteData();
-            await saveUserDataToBackend({ silent: true });
+            if (typeof flushSiteDataSave === 'function') {
+                await flushSiteDataSave({ silent: true, keepalive: true });
+            } else {
+                await saveUserDataToBackend({ silent: true, keepalive: true });
+            }
         }
     } catch (err) {
         console.error('Final sync before logout failed:', err);
@@ -1389,12 +1414,7 @@ function initializeTabs() {
         btn.addEventListener('click', () => {
             const tabName = btn.getAttribute('data-tab');
             const prevTab = document.querySelector('.tab-btn.active')?.getAttribute('data-tab');
-            if (
-                prevTab &&
-                prevTab !== tabName &&
-                getDataInputCategoryList().includes(prevTab) &&
-                typeof saveCurrentSiteData === 'function'
-            ) {
+            if (prevTab && prevTab !== tabName && typeof saveCurrentSiteData === 'function') {
                 saveCurrentSiteData();
             }
             setActiveTab(tabName);
@@ -1406,6 +1426,15 @@ function initializeTabs() {
         const subNavBtn = e.target.closest('.sub-nav-btn');
         if (subNavBtn) {
             const subName = subNavBtn.getAttribute('data-sub');
+            const dataInputSection = document.getElementById('section-data-input');
+            const leavingDataInput =
+                dataInputSection?.classList.contains('active') && subName !== 'data-input';
+            if (leavingDataInput && typeof saveCurrentSiteData === 'function') {
+                saveCurrentSiteData();
+                if (typeof flushSiteDataSave === 'function') {
+                    flushSiteDataSave({ silent: true });
+                }
+            }
             setActiveSubNav(subName);
         }
     });
@@ -2144,9 +2173,13 @@ function rebuildSitesUIFromState() {
     }
 }
 
-function loadSitesFromLocalStorage() {
+function loadSitesFromLocalStorage(options) {
+    const rebuildUI = !options || options.rebuildUI !== false;
     const orgId = localStorage.getItem('organizationId') || 'default';
-    const saved = localStorage.getItem(`carbonCalcSites_${orgId}`);
+    let saved = localStorage.getItem(`carbonCalcSites_${orgId}`);
+    if (!saved) {
+        saved = localStorage.getItem(LEGACY_SITES_CACHE_KEY);
+    }
     if (saved) {
         try {
             appState.sites = JSON.parse(saved);
@@ -2157,7 +2190,10 @@ function loadSitesFromLocalStorage() {
     } else {
         appState.sites = createDefaultSitesState(localStorage.getItem('companyName'));
     }
-    rebuildSitesUIFromState();
+    normalizeAllSitesDataShape();
+    if (rebuildUI) {
+        rebuildSitesUIFromState();
+    }
 }
 
 function loadSiteData(siteId) {
@@ -2360,14 +2396,24 @@ function saveCurrentSiteData() {
         window.carbonCalc.syncCanonicalCalendarBeforeSave();
     }
 
-    // Save data for each category (always calendar Jan–Dec; FY rows are display-only)
+    if (!site.data || typeof site.data !== 'object') {
+        site.data = createEmptySiteData();
+    }
+
+    // Save data for each category (always calendar Jan–Dec; FY rows are display-only).
+    // If a table is not in the DOM yet, keep the in-memory rows (avoid wiping on partial saves).
     getDataInputCategoryList().forEach(category => {
         const table = document.getElementById(`${category}Table`);
-        if (table) {
-            const rows = table.querySelectorAll('.data-row');
-            site.data[category] = [];
-            
-            rows.forEach(row => {
+        if (!table) {
+            if (!Array.isArray(site.data[category])) {
+                site.data[category] = [];
+            }
+            return;
+        }
+        const rows = table.querySelectorAll('.data-row');
+        const nextRows = [];
+
+        rows.forEach(row => {
                 const rowYear =
                     window.carbonCalc?.getRowYear?.(row) ??
                     parseInt(row.querySelector('.row-display-year')?.value, 10);
@@ -2406,9 +2452,10 @@ function saveCurrentSiteData() {
                     });
                 }
                 
-                site.data[category].push(rowData);
+                nextRows.push(rowData);
             });
-        }
+
+        site.data[category] = nextRows;
     });
 
     // Save per-tab additional question notes.
@@ -2439,6 +2486,8 @@ function saveCurrentSiteData() {
     saveSitesToLocalStorage();
     scheduleSiteDataSave();
 }
+
+window.saveCurrentSiteData = saveCurrentSiteData;
 
 function updateTabQuestionUI(category) {
     const site = appState.sites[appState.currentSite];
@@ -3004,6 +3053,9 @@ async function initializeApp() {
         switchOrgBtn.style.display = isPlatformAdmin || isConsultant ? 'inline-flex' : 'none';
     }
 
+    // Dynamic data-input tables must exist before loading rows from MongoDB / local cache.
+    ensureDataInputDomReady();
+
     // MongoDB is source of truth for sites + org_preferences (General Info, Assessment Scope)
     try {
         await syncOrganizationDataFromServer();
@@ -3012,12 +3064,6 @@ async function initializeApp() {
     }
 
     initializeTabs();
-    if (typeof window.initDynamicDataTabs === 'function') {
-        window.initDynamicDataTabs();
-    } else if (typeof window.initTransportSubTabs === 'function') {
-        window.initTransportSubTabs();
-    }
-
     rebuildSitesUIFromState();
 
     const savedCompanyName = getOrgLocalItem('companyName', localStorage.getItem('companyName') || 'My Company');
@@ -3329,6 +3375,11 @@ window.addEventListener('DOMContentLoaded', function() {
     };
     window.addEventListener('beforeunload', flushOnPageExit);
     window.addEventListener('pagehide', flushOnPageExit);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            flushOnPageExit();
+        }
+    });
 });
 
 // ============================================

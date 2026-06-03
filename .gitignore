@@ -85,6 +85,5 @@ test/
 !.env.example
 backend/.env
 
-# Operator scripts with production MongoDB URI (local copies only)
-scripts/update_conversion_factors.py
-scripts/upload_conversion_factors_from_datasheet.py
+# Operator scripts (may contain production MongoDB URIs — local only)
+scripts/
