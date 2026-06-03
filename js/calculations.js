@@ -711,6 +711,7 @@ function rebuildConversionFactorCheckboxes() {
         const text = document.createElement('span');
         text.className = 'conversion-factor-label';
         text.textContent = label;
+        text.title = label;
         labelEl.appendChild(cb);
         labelEl.appendChild(text);
         row.appendChild(labelEl);
