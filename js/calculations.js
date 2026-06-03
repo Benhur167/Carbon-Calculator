@@ -716,7 +716,6 @@ function rebuildConversionFactorCheckboxes() {
         row.appendChild(labelEl);
         row.appendChild(createConversionFactorUnitSelect(key));
         container.appendChild(row);
-        return cb;
     };
 
     const buildGroupShell = (subgroup, titles) => {
@@ -738,31 +737,23 @@ function rebuildConversionFactorCheckboxes() {
         h3.setAttribute('data-en', titles.en);
         h3.setAttribute('data-pt', titles.pt);
 
-        const selectAllWrap = document.createElement('label');
-        selectAllWrap.className = 'conversion-factor-group-select-all-wrap';
+        const actions = document.createElement('div');
+        actions.className = 'conversion-factor-group-actions';
         const groupSelectAll = document.createElement('input');
         groupSelectAll.type = 'checkbox';
         groupSelectAll.className = 'conversion-factor-group-select-all';
-        groupSelectAll.setAttribute(
-            'aria-label',
-            `Select all factors in ${titles.en}`
-        );
-        const selectAllText = document.createElement('span');
-        selectAllText.className = 'conversion-factor-group-select-all-text';
-        selectAllText.textContent = 'All';
-        selectAllText.setAttribute('data-en', 'All');
-        selectAllText.setAttribute('data-pt', 'Todos');
-        selectAllWrap.appendChild(groupSelectAll);
-        selectAllWrap.appendChild(selectAllText);
+        groupSelectAll.setAttribute('aria-label', `Select all in ${titles.en}`);
+        groupSelectAll.title = 'Select all in this group';
+        actions.appendChild(groupSelectAll);
 
         header.appendChild(toggleBtn);
-        header.appendChild(selectAllWrap);
         header.appendChild(h3);
         if (window.AssessmentScopeUnits?.createConversionFactorGroupUnitSelect) {
             header.appendChild(
                 window.AssessmentScopeUnits.createConversionFactorGroupUnitSelect(subgroup)
             );
         }
+        header.appendChild(actions);
         group.appendChild(header);
 
         const body = document.createElement('div');
@@ -806,6 +797,11 @@ function rebuildConversionFactorCheckboxes() {
             });
             groupSelectAll.indeterminate = false;
         });
+        body.addEventListener('change', (e) => {
+            if (e.target.classList?.contains('conversion-factor-checkbox')) {
+                syncGroupSelectAll();
+            }
+        });
 
         return { group, body, syncGroupSelectAll };
     };
@@ -820,15 +816,10 @@ function rebuildConversionFactorCheckboxes() {
         };
         const { group, body, syncGroupSelectAll } = buildGroupShell(subgroup, titles);
 
-        const bindRowCheckbox = (rowCb) => {
-            if (!rowCb) return;
-            rowCb.addEventListener('change', syncGroupSelectAll);
-        };
-
         if (subgroup === 'freight') {
             const sea = items.filter(({ key }) => CARGO_SHIP_FACTOR_KEYS.includes(key));
             const other = items.filter(({ key }) => !CARGO_SHIP_FACTOR_KEYS.includes(key));
-            other.forEach(({ key, label }) => bindRowCheckbox(appendFactorRow(body, key, label)));
+            other.forEach(({ key, label }) => appendFactorRow(body, key, label));
             if (sea.length) {
                 const sub = document.createElement('div');
                 sub.className = 'conversion-factor-subgroup';
@@ -838,11 +829,11 @@ function rebuildConversionFactorCheckboxes() {
                 subTitle.setAttribute('data-en', 'Sea freight (cargo ship)');
                 subTitle.setAttribute('data-pt', 'Frete marítimo (navio cargueiro)');
                 sub.appendChild(subTitle);
-                sea.forEach(({ key, label }) => bindRowCheckbox(appendFactorRow(sub, key, label)));
+                sea.forEach(({ key, label }) => appendFactorRow(sub, key, label));
                 body.appendChild(sub);
             }
         } else {
-            items.forEach(({ key, label }) => bindRowCheckbox(appendFactorRow(body, key, label)));
+            items.forEach(({ key, label }) => appendFactorRow(body, key, label));
         }
 
         syncGroupSelectAll();
