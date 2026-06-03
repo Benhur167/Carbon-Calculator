@@ -2086,9 +2086,6 @@ function loadSiteData(siteId) {
     if (window.carbonCalc?.refreshDataTableMonthHeaders) {
         window.carbonCalc.refreshDataTableMonthHeaders();
     }
-    if (window.carbonCalc?.getReportingPeriodType?.() === 'financial_uk') {
-        window.carbonCalc.ensureFinancialYearRows?.();
-    }
     if (window.carbonCalc?.refreshFinancialYearMonthHighlights) {
         window.carbonCalc.refreshFinancialYearMonthHighlights();
     }
