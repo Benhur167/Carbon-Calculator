@@ -2046,14 +2046,18 @@ function getCategoryTotalsForYearRange(minYear, maxYear) {
 const CHART_BASELINE_YEAR_MIN = 2020;
 const CHART_BASELINE_YEAR_MAX = 2025;
 
+function chartBaselineYearMax() {
+    return Math.max(CHART_BASELINE_YEAR_MAX, new Date().getFullYear());
+}
+
 function isValidChartYear(year) {
     return Number.isFinite(year) && year >= CHART_YEAR_ABS_MIN && year <= CHART_YEAR_ABS_MAX;
 }
 
-/** Years for charts: always includes 2020–2025, plus any years present in data rows. */
+/** Years for charts: baseline range through current calendar year, plus any years in data rows. */
 function collectDataYears() {
     const yearSet = new Set();
-    for (let y = CHART_BASELINE_YEAR_MIN; y <= CHART_BASELINE_YEAR_MAX; y++) {
+    for (let y = CHART_BASELINE_YEAR_MIN; y <= chartBaselineYearMax(); y++) {
         yearSet.add(y);
     }
 
@@ -2234,19 +2238,16 @@ function getYearComparison() {
 
     const tables = getDataInputCategories();
 
-    tables.forEach((category) => {
+    getDataInputCategories().forEach((category) => {
         const table = document.getElementById(`${category}Table`);
-        if (table) {
-            table.querySelectorAll('.data-row').forEach((row) => {
-                const year = getRowYear(row);
-                if (!isValidChartYear(year)) return;
-                if (year !== getReportingYear()) return;
-                const co2Value = Number(row.dataset.co2Tonnes || 0);
-                years[year] = (years[year] || 0) + co2Value;
-            });
-        }
+        if (!table) return;
+        table.querySelectorAll('.data-row').forEach((row) => {
+            const year = getRowYear(row);
+            if (!isValidChartYear(year)) return;
+            years[year] = (years[year] || 0) + Number(row.dataset.co2Tonnes || 0);
+        });
     });
-    
+
     const yearKeys = Object.keys(years).map((y) => parseInt(y, 10)).filter((y) => !isNaN(y));
 
     if (yearKeys.length === 0) {
@@ -2257,14 +2258,6 @@ function getYearComparison() {
             [currentYear]: 0,
         });
     }
-
-    const minYear = Math.min(...yearKeys);
-    const prevYears = [minYear - 1, minYear - 2];
-    prevYears.forEach((py) => {
-        if (py >= 2020 && !years[py]) {
-            years[py] = 0;
-        }
-    });
 
     return sortYearComparisonObject(years);
 }

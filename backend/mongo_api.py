@@ -57,6 +57,18 @@ _CARBON_STATEMENT_BASELINE_NEEDLE = (
     'This report is based on the data collected across the 2024/25 financial year.'
 )
 
+# Master switch for writing to MongoDB collection `organization_audit_log`.
+# Diff/summary logic still runs when False; only insert_one is skipped (saves Atlas storage).
+# Override without code change: ENABLE_MONGODB_AUDIT_LOGGING=true in the environment.
+ENABLE_MONGODB_AUDIT_LOGGING = False
+
+
+def _mongodb_audit_logging_enabled() -> bool:
+    raw = os.environ.get('ENABLE_MONGODB_AUDIT_LOGGING')
+    if raw is not None and str(raw).strip() != '':
+        return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+    return ENABLE_MONGODB_AUDIT_LOGGING
+
 
 def _load_yellow_numeric_field_map() -> list:
     try:
@@ -852,6 +864,8 @@ def _record_audit_event(
     action: str,
     changes: list[dict],
 ) -> None:
+    if not _mongodb_audit_logging_enabled():
+        return
     if not org_id or not changes:
         return
     col = get_audit_log_col()

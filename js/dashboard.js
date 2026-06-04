@@ -21,7 +21,8 @@ function getDashboardYearLabels() {
     const years = window.carbonCalc?.collectDataYears?.();
     if (years?.length) return years.map(String);
     const fallback = [];
-    for (let y = 2020; y <= 2025; y++) fallback.push(String(y));
+    const maxY = Math.max(2025, new Date().getFullYear());
+    for (let y = 2020; y <= maxY; y++) fallback.push(String(y));
     return fallback;
 }
 
@@ -520,35 +521,33 @@ function updateKPIs() {
     // Get Scope breakdown
     const scopeBreakdown = window.carbonCalc.getScopeBreakdown();
     
-    // Get year comparison (dynamic years)
+    // Get year comparison (all row years — not limited to toolbar reporting year)
     const yearComparison = window.carbonCalc.getYearComparison();
-    const years = Object.keys(yearComparison).map(y => parseInt(y)).sort((a, b) => b - a); // Sort descending
-    
-    // Get current year (latest year) - use current year if no data
-    const currentYearNum = new Date().getFullYear();
-    // Prefer spreadsheet "2024 Results Graphs" (2024 vs 2023) when available.
-    const latestYear = (yearComparison[2024] !== undefined) ? 2024 : (years.length > 0 ? years[0] : currentYearNum);
-    const lastYearValue = yearComparison[latestYear] || 0;
-    const previousYear = (yearComparison[2023] !== undefined)
-        ? 2023
-        : (years.length > 1 ? years[1] : (years.length > 0 && years[0] > 2020 ? years[0] - 1 : currentYearNum - 1));
-    const previousYearValue = previousYear ? (yearComparison[previousYear] || 0) : 0;
-    
-    // Calculate change percentage
+    const calendarYear = new Date().getFullYear();
+    const reportingYear = window.carbonCalc.getReportingYear?.() ?? calendarYear;
+
+    // "This Year" / "Last Year" KPIs follow the calendar (e.g. 2026 vs 2025 in 2026).
+    const thisYearKey = calendarYear;
+    const lastYearKey = calendarYear - 1;
+    const thisYearValue = yearComparison[thisYearKey] || 0;
+    const lastYearValue = yearComparison[lastYearKey] || 0;
+
+    // Year-on-year change: calendar this year vs calendar last year
     let changePercent = 0;
-    if (previousYearValue > 0) {
-        changePercent = ((lastYearValue - previousYearValue) / previousYearValue) * 100;
+    if (lastYearValue > 0) {
+        changePercent = ((thisYearValue - lastYearValue) / lastYearValue) * 100;
     }
-    
-    // Calculate monthly average - use current year's monthly data
+
+    // Monthly average uses reporting-year rows (toolbar), else last calendar year with data
     const monthlyData = window.carbonCalc.getMonthlyTotals();
-    // Count months with any data (even small values)
-    const monthsWithData = monthlyData.filter(m => m > 0).length;
-    // If we have monthly data, use it; otherwise use yearly data / 12
-    const avgMonth = monthsWithData > 0 
-        ? (monthlyData.reduce((sum, val) => sum + val, 0) / monthsWithData)
-        : (lastYearValue > 0 ? lastYearValue / 12 : 0);
-    
+    const monthsWithData = monthlyData.filter((m) => m > 0).length;
+    const avgMonth =
+        monthsWithData > 0
+            ? monthlyData.reduce((sum, val) => sum + val, 0) / monthsWithData
+            : lastYearValue > 0
+              ? lastYearValue / 12
+              : 0;
+
     // Update KPI elements
     setKpiValue('totalEmissions', grandTotal);
 
@@ -556,39 +555,31 @@ function updateKPIs() {
     setKpiValue('scope2Emissions', scopeBreakdown.scope2);
     setKpiValue('scope3Emissions', scopeBreakdown.scope3);
 
-    setKpiValue('currentYearEmissions', lastYearValue);
+    setKpiValue('currentYearEmissions', thisYearValue);
 
-    // Update last year display with dynamic year
     const lastYearElements = document.querySelectorAll('#lastYearEmissions');
     if (lastYearElements.length) {
-        const lastYearText = formatEmissionsForDisplay(
-            previousYear && yearComparison[previousYear] !== undefined ? previousYearValue : 0
-        );
+        const lastYearText = formatEmissionsForDisplay(lastYearValue);
         lastYearElements.forEach((el) => {
             el.textContent = lastYearText;
         });
-        if (previousYear && yearComparison[previousYear] !== undefined) {
-            lastYearElements.forEach((el) => {
-                const lastYearLabel = el.parentElement?.querySelector('h3');
-                if (lastYearLabel) {
-                    const labelText = lastYearLabel.textContent || lastYearLabel.innerHTML;
-                    lastYearLabel.innerHTML = labelText.replace(/\d{4}/, previousYear) || `Last Year (${previousYear})`;
-                }
-            });
-        }
+        lastYearElements.forEach((el) => {
+            const lastYearLabel = el.parentElement?.querySelector('h3');
+            if (lastYearLabel) {
+                const labelText = lastYearLabel.textContent || lastYearLabel.innerHTML;
+                lastYearLabel.innerHTML =
+                    labelText.replace(/\d{4}/, String(lastYearKey)) ||
+                    `Last Year (${lastYearKey})`;
+            }
+        });
     }
 
     setKpiValue('avgMonthEmissions', avgMonth);
 
-    const calcContext = document.getElementById('dashboardCalcContext');
-    if (calcContext && window.carbonCalc?.getReportingYear && window.carbonCalc?.getOutputUnitDisplayLabel) {
-        calcContext.textContent = `Year: ${window.carbonCalc.getReportingYear()} | Unit: ${window.carbonCalc.getOutputUnitDisplayLabel()}`;
-    }
-    
     // Update change indicator
     const ct = _chartTheme();
     const changeElement = document.getElementById('emissionsChange');
-    if (changeElement && previousYear && previousYearValue > 0) {
+    if (changeElement && lastYearValue > 0) {
         const changeText = changePercent > 0 ? `+${changePercent.toFixed(1)}%` : `${changePercent.toFixed(1)}%`;
         changeElement.textContent = changeText;
         changeElement.style.color = changePercent > 0
@@ -598,12 +589,17 @@ function updateKPIs() {
         changeElement.textContent = 'N/A';
         changeElement.style.color = ct?.changeNa || '#64748B';
     }
-    
-    // Update current year label
+
     const currentYearLabel = document.querySelector('[data-widget="thisyear"] h3');
     if (currentYearLabel) {
         const labelText = currentYearLabel.textContent || currentYearLabel.innerHTML;
-        currentYearLabel.innerHTML = labelText.replace(/\d{4}/, latestYear) || `This Year (${latestYear})`;
+        currentYearLabel.innerHTML =
+            labelText.replace(/\d{4}/, String(thisYearKey)) || `This Year (${thisYearKey})`;
+    }
+
+    const calcContext = document.getElementById('dashboardCalcContext');
+    if (calcContext && window.carbonCalc?.getReportingYear && window.carbonCalc?.getOutputUnitDisplayLabel) {
+        calcContext.textContent = `Reporting year: ${reportingYear} | Unit: ${window.carbonCalc.getOutputUnitDisplayLabel()}`;
     }
 }
 
