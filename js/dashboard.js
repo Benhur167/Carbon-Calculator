@@ -112,6 +112,18 @@ function buildChartFontFamilySelectHtml(selectedValue) {
     return `<select id="chartFontFamily">${optionsHtml}</select>`;
 }
 
+function normalizePieChartPrefs(prefs) {
+    if (!prefs?.charts?.pieChart) return prefs;
+    const pie = prefs.charts.pieChart;
+    pie.categoryColors = { ...(pie.categoryColors || {}), ...CATEGORY_CHART_COLORS };
+    if (Array.isArray(pie.sliceKeys) && Array.isArray(pie.colors)) {
+        pie.sliceKeys.forEach((key, idx) => {
+            if (CATEGORY_CHART_COLORS[key]) pie.colors[idx] = CATEGORY_CHART_COLORS[key];
+        });
+    }
+    return prefs;
+}
+
 function getChartPrefs() {
     const defaults = {
         primaryColor: '#0EA5E9',
@@ -123,11 +135,12 @@ function getChartPrefs() {
     };
     try {
         const parsed = JSON.parse(localStorage.getItem(CHART_PREFS_KEY) || '{}');
-        return {
+        const merged = {
             ...defaults,
             ...parsed,
             charts: { ...(parsed.charts || {}) },
         };
+        return normalizePieChartPrefs(merged);
     } catch {
         return defaults;
     }
@@ -388,15 +401,62 @@ function hashCategoryToColor(category) {
 }
 
 function getCategoryChartColor(category) {
+    if (Object.prototype.hasOwnProperty.call(CATEGORY_CHART_COLORS, category)) {
+        return CATEGORY_CHART_COLORS[category];
+    }
     const cfg = getChartConfig('pieChart');
     if (cfg.categoryColors?.[category]) return cfg.categoryColors[category];
-    if (CATEGORY_CHART_COLORS[category]) return CATEGORY_CHART_COLORS[category];
-    if (cfg.sliceKeys?.length && cfg.colors?.length) {
-        const storedIdx = cfg.sliceKeys.indexOf(category);
-        if (storedIdx >= 0 && cfg.colors[storedIdx]) return cfg.colors[storedIdx];
-    }
     return hashCategoryToColor(category);
 }
+
+function formatPieSliceQuantity(tonnes) {
+    const value = convertTonnesToDisplayValue(tonnes);
+    const unit = chartLabelForUnit();
+    return `${value.toFixed(3)} ${unit}`;
+}
+
+function formatPieLegendLabel(name, tonnes, total) {
+    const pct = total > 0 ? ((tonnes / total) * 100).toFixed(1) : '0.0';
+    return `${name}: ${formatPieSliceQuantity(tonnes)} (${pct}%)`;
+}
+
+/** Draw value + % on pie slices large enough to read. */
+const pieSliceLabelsPlugin = {
+    id: 'pieSliceLabels',
+    afterDatasetsDraw(chart) {
+        const dataset = chart.data.datasets[0];
+        const meta = chart.getDatasetMeta(0);
+        if (!dataset || !meta?.data?.length) return;
+
+        const total = dataset.data.reduce((sum, v) => sum + (Number(v) || 0), 0);
+        if (total <= 0) return;
+
+        const { ctx } = chart;
+        const font = chartTickFont('pieChart');
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${font.weight || 500} ${Math.max(10, (font.size || 12) - 1)}px ${font.family || 'sans-serif'}`;
+
+        meta.data.forEach((arc, index) => {
+            const value = Number(dataset.data[index]) || 0;
+            const pct = (value / total) * 100;
+            if (pct < 4) return;
+
+            const { x, y } = arc.tooltipPosition();
+            const line1 = formatPieSliceQuantity(value);
+            const line2 = `${pct.toFixed(1)}%`;
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = appState.darkMode ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.9)';
+            ctx.fillStyle = appState.darkMode ? '#F8FAFC' : '#0F172A';
+            ctx.strokeText(line1, x, y - 7);
+            ctx.fillText(line1, x, y - 7);
+            ctx.strokeText(line2, x, y + 7);
+            ctx.fillText(line2, x, y + 7);
+        });
+        ctx.restore();
+    },
+};
 
 function chartModalTitle(chartId) {
     if (chartId && chartId.startsWith('sourceTrend_')) {
@@ -864,6 +924,7 @@ function updatePieChart() {
                 borderColor: ct?.pieBorder || (appState.darkMode ? '#0F172A' : '#FFFFFF'),
             }],
         },
+        plugins: [pieSliceLabelsPlugin],
         options: {
             responsive: true,
             maintainAspectRatio: true,
@@ -874,6 +935,26 @@ function updatePieChart() {
                         color: ct?.legend || (appState.darkMode ? '#E2E8F0' : '#0F172A'),
                         font: chartTickFont('pieChart'),
                         padding: 15,
+                        generateLabels(chart) {
+                            const chartData = chart.data;
+                            if (!chartData.labels?.length || !chartData.datasets?.length) return [];
+                            const dataset = chartData.datasets[0];
+                            const total = dataset.data.reduce((a, b) => a + (Number(b) || 0), 0);
+                            return chartData.labels.map((label, i) => {
+                                const value = Number(dataset.data[i]) || 0;
+                                const bg = Array.isArray(dataset.backgroundColor)
+                                    ? dataset.backgroundColor[i]
+                                    : dataset.backgroundColor;
+                                return {
+                                    text: formatPieLegendLabel(label, value, total),
+                                    fillStyle: bg,
+                                    strokeStyle: bg,
+                                    fontColor: ct?.legend || (appState.darkMode ? '#E2E8F0' : '#0F172A'),
+                                    hidden: false,
+                                    index: i,
+                                };
+                            });
+                        },
                     },
                 },
                 tooltip: {
@@ -881,9 +962,9 @@ function updatePieChart() {
                         label(context) {
                             const label = context.label || '';
                             const value = context.parsed || 0;
-                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const total = context.dataset.data.reduce((a, b) => a + (Number(b) || 0), 0);
                             const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                            return `${label}: ${convertTonnesToDisplayValue(value).toFixed(3)} ${chartLabelForUnit()} (${percentage}%)`;
+                            return `${label}: ${formatPieSliceQuantity(value)} (${percentage}%)`;
                         },
                     },
                 },
