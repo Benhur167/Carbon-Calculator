@@ -8,262 +8,11 @@
 // ============================================
 
 async function exportToPDF() {
-    // Dashboard PDF button downloads the official Carbon Emission Statement (DOCX layout).
-    if (typeof window.generateFinalReportDOCX === 'function') {
-        await window.generateFinalReportDOCX();
-        return;
-    }
-
-    // Check if jsPDF is loaded
-    if (!window.jspdf) {
-        alert('PDF export library is loading. Please wait a moment and try again.');
-        return;
-    }
-    
     try {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF('p', 'mm', 'a4');
-    
-    // Get company info
-    const companyName = document.getElementById('companyNameInput').value || 'My Company';
-    const companyNotes = document.getElementById('companyNotes').value || '';
-    const currentDate = new Date().toLocaleDateString();
-
-    // Get financial KPIs from DOM (try main widget id, then Accounts dashboard id)
-    const getNumericFromElement = (id) => {
-        let el = document.getElementById(id);
-        if (!el) {
-            el = document.getElementById(id + 'Accounts');
-        }
-        if (!el || !el.textContent) return 0;
-        const text = el.textContent.replace(/[^0-9.\-]/g, '');
-        const val = parseFloat(text);
-        return isNaN(val) ? 0 : val;
-    };
-
-    const financials = {
-        bankBalance: getNumericFromElement('bankBalance'),
-        savingsBalance: getNumericFromElement('savingsBalance'),
-        cashIn: getNumericFromElement('cashIn'),
-        cashOut: getNumericFromElement('cashOut'),
-        invoicesOwed: getNumericFromElement('invoicesOwed'),
-        billsToPay: getNumericFromElement('billsToPay')
-    };
-    
-    // Get totals
-    const totals = window.carbonCalc.getCategoryTotals();
-    const grandTotal = Object.values(totals).reduce((sum, val) => sum + val, 0);
-    const yearComparison = window.carbonCalc.getYearComparison();
-    
-    let yPos = 20;
-    
-    // Header
-    doc.setFontSize(22);
-    doc.setTextColor(19, 181, 234);
-    doc.text('Carbon Emissions Report', 105, yPos, { align: 'center' });
-    
-    yPos += 10;
-    doc.setFontSize(12);
-    doc.setTextColor(100, 100, 100);
-    doc.text('GHG Protocol Compliant', 105, yPos, { align: 'center' });
-    
-    yPos += 15;
-    
-    // Company Information
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Company Information', 20, yPos);
-    
-    yPos += 8;
-    doc.setFontSize(10);
-    doc.setTextColor(60, 60, 60);
-    doc.text(`Company: ${companyName}`, 20, yPos);
-    
-    yPos += 6;
-    doc.text(`Report Date: ${currentDate}`, 20, yPos);
-    
-    yPos += 6;
-    doc.text(`Country: ${window.carbonCalc.getCountry()}`, 20, yPos);
-    
-    if (companyNotes) {
-        yPos += 6;
-        const splitNotes = doc.splitTextToSize(`Notes: ${companyNotes}`, 170);
-        doc.text(splitNotes, 20, yPos);
-        yPos += splitNotes.length * 5;
-    }
-    
-    yPos += 10;
-    
-    // Summary Box
-    doc.setFillColor(19, 181, 234);
-    doc.rect(20, yPos, 170, 30, 'F');
-    
-    doc.setFontSize(12);
-    doc.setTextColor(255, 255, 255);
-    doc.text('TOTAL EMISSIONS', 105, yPos + 10, { align: 'center' });
-    
-    doc.setFontSize(24);
-    doc.setFont(undefined, 'bold');
-    doc.text(`${grandTotal.toFixed(3)} tCO₂e`, 105, yPos + 22, { align: 'center' });
-    doc.setFont(undefined, 'normal');
-    
-    yPos += 40;
-    
-    // Category Breakdown
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Emissions by Category', 20, yPos);
-    
-    yPos += 8;
-    
-    const categories = [
-        { name: 'Water', key: 'water', color: [19, 181, 234] },
-        { name: 'Energy', key: 'energy', color: [255, 193, 7] },
-        {
-            name: 'Transmission & distribution',
-            key: 'transmissionDistribution',
-            color: [255, 159, 64],
-        },
-        { name: 'Waste', key: 'waste', color: [40, 167, 69] },
-        { name: 'Company fleet', key: 'transport', color: [220, 53, 69] },
-        { name: 'Business travel', key: 'businessTravel', color: [111, 66, 193] },
-        { name: 'Freighting goods', key: 'freight', color: [253, 126, 20] },
-        { name: 'Staff commute', key: 'staffCommute', color: [32, 201, 151] },
-        { name: 'Working from home', key: 'wfh', color: [13, 110, 253] },
-        { name: 'Materials', key: 'materials', color: [102, 16, 242] },
-        { name: 'Refrigerants', key: 'refrigerants', color: [108, 117, 125] },
-    ];
-    
-    categories.forEach(cat => {
-        const value = totals[cat.key] || 0;
-        const percentage = grandTotal > 0 ? ((value / grandTotal) * 100).toFixed(1) : 0;
-        
-        // Category bar (only draw if we have a valid total to avoid NaN/Infinity issues)
-        if (grandTotal > 0 && value > 0) {
-            doc.setFillColor(...cat.color);
-            const barWidth = Math.max(0, (value / grandTotal) * 150);
-            doc.rect(20, yPos, barWidth, 6, 'F');
-        }
-        
-        // Category label
-        doc.setFontSize(10);
-        doc.setTextColor(60, 60, 60);
-        doc.text(`${cat.name}: ${value.toFixed(3)} tCO₂e (${percentage}%)`, 20, yPos + 12);
-        
-        yPos += 18;
-    });
-    
-    yPos += 5;
-    
-    // Year-over-Year Comparison
-    if (yPos > 240) {
-        doc.addPage();
-        yPos = 20;
-    }
-    
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Year-over-Year Comparison', 20, yPos);
-    
-    yPos += 10;
-    
-    doc.setFontSize(10);
-    doc.setTextColor(60, 60, 60);
-    
-    // Dynamic year comparison
-    const years = Object.keys(yearComparison).sort((a, b) => parseInt(a) - parseInt(b));
-    years.forEach((year, index) => {
-        if (index > 0) yPos += 6;
-        doc.text(`${year}: ${yearComparison[year].toFixed(3)} tCO₂e`, 20, yPos);
-    });
-    
-    // Calculate change if there are at least 2 years
-    if (years.length >= 2) {
-        const latestYear = years[years.length - 1];
-        const previousYear = years[years.length - 2];
-        const change = yearComparison[latestYear] - yearComparison[previousYear];
-        const changePercent = yearComparison[previousYear] > 0 ? ((change / yearComparison[previousYear]) * 100).toFixed(1) : 0;
-        const changeText = change >= 0 ? `+${change.toFixed(3)}` : change.toFixed(3);
-        yPos += 6;
-        doc.text(`Change (${previousYear} to ${latestYear}): ${changeText} tCO₂e (${changePercent}%)`, 20, yPos);
-    }
-    
-    yPos += 15;
-    
-    // Scope Breakdown (GHG Protocol)
-    const scopes = window.carbonCalc.getScopeBreakdown();
-    
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('GHG Protocol Scopes', 20, yPos);
-    
-    yPos += 10;
-    
-    doc.setFontSize(10);
-    doc.setTextColor(60, 60, 60);
-    doc.text(`Scope 1 (Direct Emissions): ${scopes.scope1.toFixed(3)} tCO₂e`, 20, yPos);
-    
-    yPos += 6;
-    doc.text(`Scope 2 (Indirect - Electricity): ${scopes.scope2.toFixed(3)} tCO₂e`, 20, yPos);
-    
-    yPos += 6;
-    doc.text(`Scope 3 (Other Indirect): ${scopes.scope3.toFixed(3)} tCO₂e`, 20, yPos);
-
-    // Financial Summary (Accounts)
-    yPos += 12;
-    if (yPos > 260) {
-        doc.addPage();
-        yPos = 20;
-    }
-
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Financial Summary (Accounts)', 20, yPos);
-
-    yPos += 10;
-    doc.setFontSize(10);
-    doc.setTextColor(60, 60, 60);
-    doc.text(`Business Bank Account: $${financials.bankBalance.toFixed(2)}`, 20, yPos);
-
-    yPos += 6;
-    doc.text(`Business Savings: $${financials.savingsBalance.toFixed(2)}`, 20, yPos);
-
-    yPos += 6;
-    doc.text(`Total Cash In: $${financials.cashIn.toFixed(2)}`, 20, yPos);
-
-    yPos += 6;
-    doc.text(`Total Cash Out: $${financials.cashOut.toFixed(2)}`, 20, yPos);
-
-    yPos += 6;
-    doc.text(`Invoices Owed to You: $${financials.invoicesOwed.toFixed(2)}`, 20, yPos);
-
-    yPos += 6;
-    doc.text(`Bills to Pay: $${financials.billsToPay.toFixed(2)}`, 20, yPos);
-
-    // Footer
-    doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
-    doc.text('Generated by Carbon Calculator Phase 1 - GHG Protocol Compliant', 105, 285, { align: 'center' });
-    doc.text(`${currentDate}`, 105, 290, { align: 'center' });
-    
-        // Save PDF
-        const fileName = `Carbon_Report_${companyName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
-        doc.save(fileName);
-        
-        // Show success message
-        if (typeof showNotification !== 'undefined') {
-            showNotification(
-                appState.currentLanguage === 'en' 
-                    ? '✅ PDF exported successfully!' 
-                    : '✅ PDF exportado com sucesso!',
-                'success'
-            );
-        } else {
-            alert(appState.currentLanguage === 'en' ? 'PDF exported successfully!' : 'PDF exportado com sucesso!');
-        }
-    } catch (error) {
-        console.error('PDF Export Error:', error);
-        alert('Error exporting PDF: ' + error.message);
+        await generateFinalReportDOCX();
+    } catch (err) {
+        console.error('Carbon Emission Statement export error:', err);
+        alert('Error exporting report: ' + (err?.message || err));
     }
 }
 
@@ -287,8 +36,8 @@ function exportToExcel() {
         const wb = XLSX.utils.book_new();
     
     // Get company info
-    const companyName = document.getElementById('companyNameInput').value || 'My Company';
-    const companyNotes = document.getElementById('companyNotes').value || '';
+    const companyName = _getCompanyNameForExport();
+    const companyNotes = document.getElementById('companyNotes')?.value || '';
 
     // Get financial KPIs (same helper as PDF, local copy)
     const getNumericFromElement = (id) => {
@@ -398,7 +147,7 @@ function exportToExcel() {
     
     // Save Excel file
     const fileName = `Carbon_Report_${companyName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    _downloadExcelWorkbook(wb, fileName);
     
     // Show success message
     const lang = window.appState?.currentLanguage === 'pt' ? 'pt' : 'en';
@@ -808,15 +557,42 @@ function _excelSheetName(categoryKey) {
     return _categoryLabel(categoryKey).replace(/[\\/*?:\[\]]/g, '_').slice(0, 31);
 }
 
+function _getCompanyNameForExport() {
+    return (
+        document.getElementById('companyNameInput')?.value?.trim() ||
+        localStorage.getItem('companyName') ||
+        'My Company'
+    );
+}
+
 function _downloadBlob(blob, fileName) {
+    if (!blob || (typeof blob.size === 'number' && blob.size === 0)) {
+        throw new Error('Generated file is empty.');
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
+    a.rel = 'noopener';
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 3000);
+}
+
+function _downloadExcelWorkbook(wb, fileName) {
+    if (typeof XLSX.write === 'function') {
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([wbout], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+        _downloadBlob(blob, fileName);
+        return;
+    }
+    XLSX.writeFile(wb, fileName);
 }
 
 function _exportSuccessMessage(enKey, ptKey) {
@@ -1388,8 +1164,10 @@ function collectFinalReportPerformanceRows() {
 const _W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const _CARBON_STATEMENT_BASELINE_NEEDLE =
     'This report is based on the data collected across the 2024/25 financial year.';
-const _FINAL_REPORT_TEMPLATE_URL =
-    'requirements/Carbon%20emissions%20statement%20report%20template.docx';
+const _FINAL_REPORT_TEMPLATE_FALLBACK_URLS = [
+    'assets/reports/carbon-emission-statement-template.docx',
+    'requirements/Carbon%20emissions%20statement%20report%20template.docx',
+];
 const _YELLOW_FIELD_MAP = [
     'natural_gas_scope_kg', 'natural_gas_emissions_kg', 'electricity_usage', 'electricity_factor',
     'electricity_emissions_kg', 'electricity_scope_kg', 'td_usage', 'td_factor', 'td_emissions_kg',
@@ -1673,15 +1451,35 @@ function _applyYellowFieldMap(root, valuesByKey) {
     });
 }
 
+async function _fetchReportTemplateBytes() {
+    const pageBase = String(window.location.href || '').replace(/[#?].*$/, '').replace(/[^/]+$/, '');
+    const candidates = [];
+    _FINAL_REPORT_TEMPLATE_FALLBACK_URLS.forEach((path) => {
+        candidates.push(path);
+        if (pageBase && !/^https?:/i.test(path)) {
+            candidates.push(pageBase + path);
+        }
+    });
+
+    let lastError = null;
+    for (const url of candidates) {
+        try {
+            const resp = await fetch(url, { cache: 'no-store' });
+            if (!resp.ok) continue;
+            const buf = await resp.arrayBuffer();
+            if (buf && buf.byteLength > 1000) return buf;
+        } catch (err) {
+            lastError = err;
+        }
+    }
+    throw lastError || new Error('Carbon Emission Statement file is not available in this deployment.');
+}
+
 async function _buildFinalReportDOCXClientSide(payload) {
     if (typeof JSZip === 'undefined') {
         throw new Error('Report builder library is not loaded.');
     }
-    const resp = await fetch(_FINAL_REPORT_TEMPLATE_URL);
-    if (!resp.ok) {
-        throw new Error('Carbon Emission Statement file is not available in this deployment.');
-    }
-    const templateBytes = await resp.arrayBuffer();
+    const templateBytes = await _fetchReportTemplateBytes();
     const zip = await JSZip.loadAsync(templateBytes);
     let xmlStr = await zip.file('word/document.xml').async('string');
 
@@ -1838,34 +1636,41 @@ async function generateFinalReportDOCX() {
     if (!_ensureCarbonCalc()) return;
 
     const payload = _buildFinalReportPayload();
-    const token = localStorage.getItem('authToken');
     let downloaded = false;
+    let lastError = null;
 
-    if (token) {
-        try {
-            const { blob, fileName } = await _fetchFinalReportFromApi(payload, token);
-            _downloadBlob(blob, fileName);
-            downloaded = true;
-        } catch (apiErr) {
-            console.warn('Server report generation failed, using local builder.', apiErr);
+    try {
+        const blob = await _buildFinalReportDOCXClientSide(payload);
+        _downloadBlob(blob, _finalReportFileName(payload.organization_name));
+        downloaded = true;
+    } catch (localErr) {
+        console.warn('Local report builder failed, trying server.', localErr);
+        lastError = localErr;
+    }
+
+    if (!downloaded) {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            try {
+                const { blob, fileName } = await _fetchFinalReportFromApi(payload, token);
+                _downloadBlob(blob, fileName);
+                downloaded = true;
+            } catch (apiErr) {
+                console.warn('Server report generation failed.', apiErr);
+                lastError = apiErr;
+            }
         }
     }
 
     if (!downloaded) {
-        try {
-            const blob = await _buildFinalReportDOCXClientSide(payload);
-            _downloadBlob(blob, _finalReportFileName(payload.organization_name));
-            downloaded = true;
-        } catch (localErr) {
-            console.error(localErr);
-            const lang = window.appState?.currentLanguage === 'pt' ? 'pt' : 'en';
-            alert(
-                lang === 'en'
-                    ? 'Could not generate the Carbon Emission Statement. Ensure you are logged in or that the report file is deployed with the app.'
-                    : 'Nao foi possivel gerar o Relatorio de Emissoes. Verifique o login ou se o arquivo do relatorio esta disponivel.'
-            );
-            return;
-        }
+        console.error(lastError);
+        const lang = window.appState?.currentLanguage === 'pt' ? 'pt' : 'en';
+        alert(
+            lang === 'en'
+                ? 'Could not generate the Carbon Emission Statement. Open the app via a web server (not file://) and ensure assets/reports/carbon-emission-statement-template.docx is deployed.'
+                : 'Nao foi possivel gerar o Relatorio de Emissoes. Abra o app via servidor web e confirme que o arquivo do relatorio esta disponivel.'
+        );
+        return;
     }
 
     showNotification(

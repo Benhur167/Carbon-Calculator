@@ -1898,6 +1898,20 @@ body {
     outline-offset: 1px;
 }
 
+.app-dialog-content .widget-modal-footer {
+    justify-content: stretch;
+}
+
+.app-dialog-content .widget-modal-footer .btn-primary,
+.app-dialog-content .widget-modal-footer .btn-secondary {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    justify-content: center;
+    padding: 12px 20px;
+    font-size: 14px;
+}
+
 /* Widget Customization Modal */
 .widget-modal {
     position: fixed;

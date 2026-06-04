@@ -630,6 +630,7 @@ const SESSION_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_EXPIRES_AT_KEY = 'sessionExpiresAt';
 const SESSION_LAST_ACTIVITY_KEY = 'sessionLastActivity';
 let sessionMonitorStarted = false;
+let sessionExpiryHandled = false;
 const TAB_QUESTION_PROMPTS = {
     water: 'Water tab: include meter source, estimated readings, and any anomalies.',
     energy: 'Energy tab: include billing period type (calendar/financial), tariff notes, and kWh data source.',
@@ -1215,15 +1216,21 @@ function isSessionExpired() {
     return Date.now() > expiresAt;
 }
 
+function resetSessionExpiryState() {
+    sessionExpiryHandled = false;
+}
+
 async function forceLogoutForExpiredSession(showMessage = true) {
+    if (sessionExpiryHandled) return;
+    sessionExpiryHandled = true;
+    appState.loggedIn = false;
+
     try {
-        if (appState.loggedIn) {
-            syncAllTabQuestionsToSite();
-            if (typeof saveCurrentSiteData === 'function') saveCurrentSiteData();
-            saveSitesToLocalStorage();
-            if (typeof window.flushSiteDataSave === 'function') {
-                await window.flushSiteDataSave({ silent: true, force: true });
-            }
+        syncAllTabQuestionsToSite();
+        if (typeof saveCurrentSiteData === 'function') saveCurrentSiteData();
+        saveSitesToLocalStorage();
+        if (typeof window.flushSiteDataSave === 'function') {
+            await window.flushSiteDataSave({ silent: true, force: true });
         }
     } catch (err) {
         console.error('Could not save data before session expiry:', err);
@@ -1234,7 +1241,12 @@ async function forceLogoutForExpiredSession(showMessage = true) {
     if (loginScreen) loginScreen.style.display = 'flex';
     if (mainApp) mainApp.style.display = 'none';
     if (showMessage) {
-        alert('Your session has expired. Please login again.');
+        const lang = appState.currentLanguage === 'pt' ? 'pt' : 'en';
+        alert(
+            lang === 'pt'
+                ? 'Sua sessão expirou. Faça login novamente.'
+                : 'Your session has expired. Please login again.'
+        );
     }
 }
 
@@ -1373,6 +1385,7 @@ document.getElementById('loginForm')?.addEventListener('submit', async function(
             localStorage.setItem('loggedIn', 'true');
             localStorage.setItem('loginEmail', identifier);
             localStorage.setItem('authToken', data.access_token);
+            resetSessionExpiryState();
             touchSession();
             startSessionMonitor();
             
@@ -3958,6 +3971,7 @@ window.addEventListener('DOMContentLoaded', function() {
         localStorage.removeItem('orgOpenMainApp');
         // Auto-login: set state and sync
         appState.loggedIn = true;
+        resetSessionExpiryState();
         touchSession();
         startSessionMonitor();
         ensureOrganizationSession(
