@@ -255,6 +255,9 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('orgOpenMainApp', 'true');
         window.location.href = 'index.html';
     });
+    document.getElementById('openAuditLogBtn')?.addEventListener('click', () => {
+        window.location.href = 'organization-audit-log.html';
+    });
 
     loadUsers();
 });

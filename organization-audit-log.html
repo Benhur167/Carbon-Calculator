@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Organization Audit Log</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box" style="max-width: 720px;">
+            <div class="login-header">
+                <img src="assets/SQImpact_v2.png" alt="SQ Impact" style="width: 280px; max-width: 100%; margin-bottom: 8px;">
+                <p>Organization audit log</p>
+                <h3 id="auditOrgNameHeading" style="margin-top: 8px;"></h3>
+            </div>
+
+            <p style="color: var(--text-secondary); margin-bottom: 12px;">
+                Records who changed organization data stored in MongoDB (buildings, monthly inputs, settings, invoices, and user accounts).
+                Regular organization users cannot view or download this log.
+            </p>
+
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;">
+                <button id="downloadAuditLogBtn" type="button" class="btn-primary">
+                    <i class="fas fa-download"></i> Download full log (.txt)
+                </button>
+                <button id="refreshAuditLogBtn" type="button" class="btn-secondary">Refresh preview</button>
+            </div>
+            <div id="auditLogStatus" class="success-message" style="min-height: 1.2em; margin-bottom: 10px;"></div>
+
+            <div class="card p-4">
+                <h3 style="margin-bottom: 8px;">Recent activity</h3>
+                <pre id="auditLogPreview" style="white-space: pre-wrap; font-size: 12px; max-height: 360px; overflow: auto; margin: 0; color: var(--text-primary); background: var(--bg-secondary, #f5f5f5); padding: 12px; border-radius: 6px;">Loading…</pre>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 16px;">
+                <button id="auditOpenAppBtn" type="button" class="btn-link">Open organization data</button>
+                <button id="auditBackBtn" type="button" class="btn-link">Back</button>
+                <button id="auditLogoutBtn" type="button" class="btn-link">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/api-config.js?v=20260528b"></script>
+    <script src="js/organization-audit-log.js"></script>
+</body>
+</html>

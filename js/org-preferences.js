@@ -93,6 +93,9 @@
             const logo = document.getElementById('companyLogoImg');
             if (logo) logo.src = data.companyLogo;
         }
+        if (data.currentSiteId && global.appState?.sites?.[data.currentSiteId]) {
+            global.appState.currentSite = data.currentSiteId;
+        }
         if (data.hiddenWidgets) {
             try {
                 const ids = JSON.parse(data.hiddenWidgets);
@@ -143,6 +146,48 @@
                 if (ou) ou.value = data.carbonCalcOutputUnit;
                 const reportOu = document.getElementById('reportOutputUnitSelect');
                 if (reportOu) reportOu.value = data.carbonCalcOutputUnit;
+            }
+        }
+
+        if (global.localStorage) {
+            if (data.carbonPaletteLight) {
+                global.localStorage.setItem('carbonColorPalette_light', data.carbonPaletteLight);
+            }
+            if (data.carbonPaletteDark) {
+                global.localStorage.setItem('carbonColorPalette_dark', data.carbonPaletteDark);
+            }
+            if (data.dashboardChartPreferences) {
+                global.localStorage.setItem('carbonChartPreferences', data.dashboardChartPreferences);
+            }
+            if (data.uiLanguage && global.appState) {
+                global.appState.currentLanguage = data.uiLanguage === 'pt' ? 'pt' : 'en';
+                global.localStorage.setItem('language', global.appState.currentLanguage);
+                if (typeof global.updateLanguage === 'function') {
+                    global.updateLanguage();
+                }
+            }
+            if (data.uiDarkMode === 'true' || data.uiDarkMode === 'false') {
+                const wantDark = data.uiDarkMode === 'true';
+                const isDark =
+                    document.documentElement.getAttribute('data-theme') === 'dark';
+                global.localStorage.setItem('darkMode', data.uiDarkMode);
+                if (wantDark !== isDark && typeof global.toggleDarkMode === 'function') {
+                    global.toggleDarkMode();
+                } else if (typeof global.applyCarbonPalette === 'function') {
+                    global.applyCarbonPalette();
+                }
+            }
+            if (data.qaChecklistState) {
+                global.localStorage.setItem('qaChecklistState', data.qaChecklistState);
+                if (typeof global.renderQaState === 'function') {
+                    global.renderQaState();
+                }
+            }
+            if (
+                (data.carbonPaletteLight || data.carbonPaletteDark) &&
+                typeof global.applyCarbonPalette === 'function'
+            ) {
+                global.applyCarbonPalette();
             }
         }
 
@@ -209,9 +254,29 @@
         if (global.appState?.hiddenWidgets) {
             out.hiddenWidgets = JSON.stringify(global.appState.hiddenWidgets);
         }
+        if (global.appState?.currentSite) {
+            out.currentSiteId = String(global.appState.currentSite);
+        }
         const logo = document.getElementById('companyLogoImg');
         if (logo?.src && logo.src.startsWith('data:')) {
             out.companyLogo = logo.src;
+        }
+
+        if (global.localStorage) {
+            const paletteLight = global.localStorage.getItem('carbonColorPalette_light');
+            const paletteDark = global.localStorage.getItem('carbonColorPalette_dark');
+            if (paletteLight) out.carbonPaletteLight = paletteLight;
+            if (paletteDark) out.carbonPaletteDark = paletteDark;
+            const chartPrefs = global.localStorage.getItem('carbonChartPreferences');
+            if (chartPrefs) out.dashboardChartPreferences = chartPrefs;
+            out.uiLanguage =
+                global.appState?.currentLanguage ||
+                global.localStorage.getItem('language') ||
+                'en';
+            out.uiDarkMode =
+                global.localStorage.getItem('darkMode') === 'true' ? 'true' : 'false';
+            const qa = global.localStorage.getItem('qaChecklistState');
+            if (qa) out.qaChecklistState = qa;
         }
 
         return out;

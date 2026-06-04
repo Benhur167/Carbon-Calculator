@@ -472,6 +472,9 @@
         sel.value = stored;
         sel.addEventListener('change', function () {
             applyCarbonPalette(sel.value);
+            if (typeof window.scheduleOrgPreferencesSave === 'function') {
+                window.scheduleOrgPreferencesSave();
+            }
         });
 
         applyCarbonPalette(sel.value);

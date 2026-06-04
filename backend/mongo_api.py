@@ -158,6 +158,18 @@ def get_data_col():
     db = get_db()
     return db['user_data'] if db is not None else None
 
+
+def get_audit_log_col():
+    db = get_db()
+    return db['organization_audit_log'] if db is not None else None
+
+
+from audit_log import (  # noqa: E402
+    build_audit_summary,
+    diff_user_data_payload,
+    format_audit_log_txt,
+)
+
 # Conversion Factors (country/year/source) — values live in MongoDB only.
 # Run scripts/update_conversion_factors.py to load from the customer datasheet.
 from data.catalog_factor_registry import (
@@ -793,6 +805,68 @@ def _is_consultant(user: dict | None) -> bool:
     return bool(user and user.get('is_consultant'))
 
 
+def _actor_role_label(user: dict | None) -> str:
+    if not user:
+        return 'user'
+    if user.get('is_platform_admin'):
+        return 'platform_admin'
+    if user.get('is_consultant'):
+        return 'consultant'
+    if user.get('is_org_admin'):
+        return 'org_admin'
+    return 'user'
+
+
+def _audit_actor_fields(user: dict | None) -> dict:
+    if not user:
+        return {
+            'actor_email': '',
+            'actor_username': '',
+            'actor_name': '',
+            'actor_role': 'user',
+        }
+    return {
+        'actor_email': user.get('email') or '',
+        'actor_username': user.get('username') or '',
+        'actor_name': user.get('full_name') or '',
+        'actor_role': _actor_role_label(user),
+    }
+
+
+def _can_view_organization_audit_log(user: dict | None, org_id: str | None) -> bool:
+    if not user or not org_id:
+        return False
+    oid = str(org_id).strip()
+    if user.get('is_platform_admin'):
+        return True
+    if user.get('is_org_admin') and str(user.get('organization_id') or '') == oid:
+        return True
+    if _is_consultant(user):
+        return any(m.get('organization_id') == oid for m in _user_memberships(user))
+    return False
+
+
+def _record_audit_event(
+    org_id: str,
+    user: dict | None,
+    action: str,
+    changes: list[dict],
+) -> None:
+    if not org_id or not changes:
+        return
+    col = get_audit_log_col()
+    if col is None:
+        return
+    col.insert_one({
+        'organization_id': org_id,
+        'timestamp': utc_now(),
+        **_audit_actor_fields(user),
+        'action': action,
+        'summary': build_audit_summary(changes, action),
+        'changes': changes,
+    })
+
+
 def _find_org_by_id(orgs_col, org_id: str | None):
     if not org_id or orgs_col is None:
         return None
@@ -912,6 +986,71 @@ def _sanitize_org_preferences(raw) -> dict:
     return out
 
 
+_SITE_LIST_MAX = 500
+_SITE_RECORD_STR_MAX = 2000
+
+
+def _sanitize_site_financials(fin) -> dict:
+    defaults = {
+        'bankBalance': 0.0,
+        'savingsBalance': 0.0,
+        'cashIn': 0.0,
+        'cashOut': 0.0,
+        'invoicesOwed': 0.0,
+        'billsToPay': 0.0,
+    }
+    if not isinstance(fin, dict):
+        return dict(defaults)
+    out = dict(defaults)
+    for key in defaults:
+        try:
+            out[key] = float(fin.get(key, 0))
+        except (TypeError, ValueError):
+            out[key] = 0.0
+    return out
+
+
+def _sanitize_site_record_list(items, *, id_prefix: str) -> list:
+    if not isinstance(items, list):
+        return []
+    clean = []
+    for item in items[:_SITE_LIST_MAX]:
+        if not isinstance(item, dict):
+            continue
+        rec = {}
+        raw_id = item.get('id')
+        rec['id'] = str(raw_id or f'{id_prefix}-{len(clean)}')[:64]
+        for key, val in item.items():
+            if key == 'id':
+                continue
+            if isinstance(val, (int, float)):
+                rec[key] = val
+            elif isinstance(val, bool):
+                rec[key] = val
+            elif val is not None:
+                rec[key] = str(val)[:_SITE_RECORD_STR_MAX]
+        clean.append(rec)
+    return clean
+
+
+def _sanitize_monthly_cash_flow(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    for period, val in list(raw.items())[:120]:
+        if period is None:
+            continue
+        key = str(period)[:32]
+        if isinstance(val, (int, float)):
+            out[key] = float(val)
+        elif isinstance(val, dict):
+            out[key] = {
+                str(k)[:32]: float(v) if isinstance(v, (int, float)) else 0.0
+                for k, v in list(val.items())[:24]
+            }
+    return out
+
+
 def _sanitize_site_data_payload(payload: dict) -> dict:
     """Validate/sanitize site rows and keep backward-compatible shape."""
     if not isinstance(payload, dict):
@@ -925,6 +1064,20 @@ def _sanitize_site_data_payload(payload: dict) -> dict:
     for _site_id, site in sites.items():
         if not isinstance(site, dict):
             continue
+        site['financials'] = _sanitize_site_financials(site.get('financials'))
+        site['invoices'] = _sanitize_site_record_list(site.get('invoices'), id_prefix='inv')
+        site['bills'] = _sanitize_site_record_list(site.get('bills'), id_prefix='bill')
+        cash = site.get('cashTransactions')
+        if not isinstance(cash, dict):
+            cash = {}
+        site['cashTransactions'] = {
+            'cashIn': _sanitize_site_record_list(cash.get('cashIn'), id_prefix='cash-in'),
+            'cashOut': _sanitize_site_record_list(cash.get('cashOut'), id_prefix='cash-out'),
+        }
+        site['monthlyCashFlow'] = _sanitize_monthly_cash_flow(site.get('monthlyCashFlow'))
+        for text_key in ('name', 'companyName', 'notes'):
+            if text_key in site and site[text_key] is not None:
+                site[text_key] = str(site[text_key])[:500]
         tab_q = site.get('tabQuestions')
         if tab_q is None or not isinstance(tab_q, dict):
             site['tabQuestions'] = {}
@@ -1442,6 +1595,19 @@ def org_users():
         added_by=current_user.get('email') or current_user.get('username'),
     )
 
+    _record_audit_event(
+        str(org_id),
+        current_user,
+        'user_created',
+        [{
+            'area': 'users',
+            'path': f'users.{username}',
+            'detail': f'Organization admin created user "{username}"',
+            'old': '(none)',
+            'new': full_name or email or username,
+        }],
+    )
+
     return jsonify({
         "msg": "User added successfully",
         "user": {
@@ -1480,6 +1646,18 @@ def org_user_update_delete(username: str):
         return jsonify({"msg": "Organization admin account cannot be edited or removed here"}), 400
 
     if request.method == 'DELETE':
+        _record_audit_event(
+            str(current_user.get('organization_id')),
+            current_user,
+            'user_deleted',
+            [{
+                'area': 'users',
+                'path': f'users.{target_username}',
+                'detail': f'Organization admin removed user "{target_username}"',
+                'old': target_user.get('full_name') or target_username,
+                'new': '(removed)',
+            }],
+        )
         users_col.delete_one({"_id": target_user["_id"]})
         return jsonify({"msg": "User removed successfully"}), 200
 
@@ -1524,6 +1702,34 @@ def org_user_update_delete(username: str):
 
     if not updates:
         return jsonify({"msg": "No changes provided"}), 400
+
+    user_changes: list[dict] = []
+    for field, new_val in updates.items():
+        if field == 'password':
+            user_changes.append({
+                'area': 'users',
+                'path': f'users.{target_username}.password',
+                'detail': f'Password reset for user "{target_username}"',
+                'old': '[redacted]',
+                'new': '[password changed]',
+            })
+            continue
+        old_val = target_user.get(field)
+        if old_val != new_val:
+            user_changes.append({
+                'area': 'users',
+                'path': f'users.{target_username}.{field}',
+                'detail': f'Updated user "{target_username}" field "{field}"',
+                'old': str(old_val) if old_val is not None else '(empty)',
+                'new': str(new_val) if new_val is not None else '(empty)',
+            })
+    if user_changes:
+        _record_audit_event(
+            str(current_user.get('organization_id')),
+            current_user,
+            'user_updated',
+            user_changes,
+        )
 
     users_col.update_one({"_id": target_user["_id"]}, {"$set": updates})
     updated = users_col.find_one({"_id": target_user["_id"]}, {
@@ -1609,8 +1815,80 @@ def save_user_data():
     data['organization_id'] = org_id
     data['updated_at'] = utc_now()
 
+    old_snapshot = {
+        'sites': existing.get('sites') if isinstance(existing.get('sites'), dict) else {},
+        'org_preferences': existing.get('org_preferences')
+        if isinstance(existing.get('org_preferences'), dict)
+        else {},
+    }
+    new_snapshot = {
+        'sites': data.get('sites') if isinstance(data.get('sites'), dict) else {},
+        'org_preferences': data.get('org_preferences')
+        if isinstance(data.get('org_preferences'), dict)
+        else {},
+    }
+    data_changes = diff_user_data_payload(old_snapshot, new_snapshot)
+    if data_changes:
+        _record_audit_event(org_id, user, 'data_save', data_changes)
+
     data_col.update_one({'organization_id': org_id}, {'$set': data}, upsert=True)
     return jsonify({'msg': 'Data saved'}), 200
+
+
+@app.route('/api/organization/audit-log', methods=['GET'])
+@jwt_required()
+def organization_audit_log():
+    """Audit trail for MongoDB org data — org admin, platform admin, or consultant only."""
+    users_col = get_users_col()
+    audit_col = get_audit_log_col()
+    if users_col is None or audit_col is None:
+        return jsonify({'msg': 'DB Error'}), 503
+
+    current_identity = get_jwt_identity()
+    user = _find_user_by_login(users_col, current_identity) if current_identity else None
+    org_id = _resolve_request_organization_id(user) if user else None
+    if not org_id:
+        return jsonify({'msg': 'Organization is not linked to this account.'}), 400
+    if not _can_view_organization_audit_log(user, org_id):
+        return jsonify({'msg': 'Only organization admin, platform admin, or consultant can view the audit log.'}), 403
+
+    try:
+        limit = int(request.args.get('limit', 500))
+    except (TypeError, ValueError):
+        limit = 500
+    limit = max(1, min(limit, 2000))
+
+    fmt = (request.args.get('format') or 'json').strip().lower()
+    cursor = audit_col.find({'organization_id': org_id}).sort('timestamp', -1).limit(limit)
+    entries = []
+    for doc in cursor:
+        doc['_id'] = str(doc['_id'])
+        entries.append(doc)
+
+    if fmt == 'txt':
+        org_name = None
+        orgs_col = get_orgs_col()
+        if orgs_col is not None:
+            org_doc = _find_org_by_id(orgs_col, org_id)
+            if org_doc:
+                org_name = org_doc.get('name')
+        if not org_name and user:
+            org_name = user.get('organization_name')
+        body = format_audit_log_txt(org_id, org_name, entries)
+        safe_id = re.sub(r'[^\w\-]+', '_', str(org_id))[:48]
+        filename = f'organization-audit-log-{safe_id}.txt'
+        return Response(
+            body,
+            mimetype='text/plain; charset=utf-8',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )
+
+    return jsonify({
+        'organization_id': org_id,
+        'count': len(entries),
+        'entries': entries,
+    }), 200
+
 
 @app.route('/api/factors', methods=['GET'])
 @jwt_required()

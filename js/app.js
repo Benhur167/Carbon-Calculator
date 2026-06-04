@@ -62,6 +62,17 @@ function restoreCurrentSiteId() {
     }
 }
 
+/** Use Mongo currentSiteId when this browser has no per-org site selection cached. */
+function applyCurrentSiteFromOrgPrefs(prefs) {
+    if (!prefs || typeof prefs !== 'object') return;
+    const id = prefs.currentSiteId;
+    if (!id || !appState.sites?.[id]) return;
+    const orgId = localStorage.getItem('organizationId') || 'default';
+    if (localStorage.getItem(currentSiteStorageKey(orgId))) return;
+    appState.currentSite = id;
+    persistCurrentSiteId();
+}
+
 function readLocalSitesCache(orgId) {
     const key = `carbonCalcSites_${orgId || 'default'}`;
     const raw = localStorage.getItem(key) || localStorage.getItem(LEGACY_SITES_CACHE_KEY);
@@ -130,8 +141,9 @@ function mergeSiteTabQuestions(targetSite, localSite) {
     Object.keys(localQ).forEach((key) => {
         if (!getDataInputCategoryList().includes(key)) return;
         const localVal = String(localQ[key] || '').trim();
+        if (!localVal) return;
         const serverVal = String(targetSite.tabQuestions[key] || '').trim();
-        if (localVal && (!serverVal || localVal.length > serverVal.length)) {
+        if (!serverVal || localVal.length >= serverVal.length) {
             targetSite.tabQuestions[key] = localQ[key];
         }
     });
@@ -238,8 +250,18 @@ function ensureSiteTabQuestions(site) {
     }
 }
 
-/** Last data-input category (water, energy, …) — survives Dashboard/Accounts where no tab-btn stays active. */
+function tabQuestionsLocalStorageKey(siteId, category) {
+    const orgId = localStorage.getItem('organizationId') || 'default';
+    return `tabQuestions_${orgId}_${siteId}_${category}`;
+}
+
+/** Which data-input category the shared notes textarea belongs to (water, energy, …). */
 function getActiveDataInputTabKey() {
+    const notesEl = document.getElementById('tabQuestionNotesInput');
+    const fromDataset = notesEl?.dataset?.activeCategory;
+    if (fromDataset && getDataInputCategoryList().includes(fromDataset)) {
+        return fromDataset;
+    }
     const fromNav = document.querySelector('.tabs-nav .tab-btn.active')?.getAttribute('data-tab');
     if (fromNav && getDataInputCategoryList().includes(fromNav)) {
         return fromNav;
@@ -254,10 +276,40 @@ function getActiveDataInputTabKey() {
 }
 
 function persistTabQuestionNotesForCategory(category, text) {
-    const site = appState.sites[appState.currentSite];
+    const siteId = appState.currentSite;
+    const site = appState.sites[siteId];
     if (!site || !category) return;
     ensureSiteTabQuestions(site);
-    site.tabQuestions[category] = text == null ? '' : String(text);
+    const value = text == null ? '' : String(text);
+    site.tabQuestions[category] = value;
+    try {
+        localStorage.setItem(tabQuestionsLocalStorageKey(siteId, category), value);
+    } catch (_e) {
+        /* ignore quota */
+    }
+}
+
+/** Restore per-tab notes from org-scoped localStorage when server/memory is empty. */
+function hydrateTabQuestionsFromLocalCache(site, siteId) {
+    if (!site || !siteId) return;
+    ensureSiteTabQuestions(site);
+    getDataInputCategoryList().forEach((category) => {
+        const cached = localStorage.getItem(tabQuestionsLocalStorageKey(siteId, category));
+        if (!cached || !String(cached).trim()) return;
+        const existing = String(site.tabQuestions[category] || '').trim();
+        if (!existing) {
+            site.tabQuestions[category] = cached;
+        }
+    });
+}
+
+function syncTabQuestionsFromDomToSite() {
+    const site = appState.sites[appState.currentSite];
+    if (!site) return;
+    const notesEl = document.getElementById('tabQuestionNotesInput');
+    const category = getActiveDataInputTabKey();
+    if (!notesEl || !category) return;
+    persistTabQuestionNotesForCategory(category, notesEl.value || '');
 }
 
 /** Persist the shared notes textarea into the site for the active data-input category. */
@@ -309,7 +361,11 @@ const appState = {
                 invoicesOwed: 0,
                 billsToPay: 0
             },
-            tabQuestions: {}
+            tabQuestions: {},
+            invoices: [],
+            bills: [],
+            cashTransactions: { cashIn: [], cashOut: [] },
+            monthlyCashFlow: {}
         }
     },
     hiddenWidgets: []
@@ -551,7 +607,67 @@ function collectLegacyOrgPreferencesFromLocalStorage() {
         const scoped = localStorage.getItem(orgStorageKey(key));
         if (scoped !== null && scoped !== '') out[key] = scoped;
     });
+    const paletteLight = localStorage.getItem('carbonColorPalette_light');
+    const paletteDark = localStorage.getItem('carbonColorPalette_dark');
+    if (paletteLight) out.carbonPaletteLight = paletteLight;
+    if (paletteDark) out.carbonPaletteDark = paletteDark;
+    const chartPrefs = localStorage.getItem('carbonChartPreferences');
+    if (chartPrefs) out.dashboardChartPreferences = chartPrefs;
+    if (localStorage.getItem('language')) out.uiLanguage = localStorage.getItem('language');
+    if (localStorage.getItem('darkMode')) out.uiDarkMode = localStorage.getItem('darkMode');
+    const qa = localStorage.getItem(QA_CHECKLIST_KEY);
+    if (qa) out.qaChecklistState = qa;
     return out;
+}
+
+/** Fill gaps in server org_preferences from local cache (never overwrite non-empty server values). */
+function mergeOrgPreferencesPreferLocal(serverPrefs, localPrefs) {
+    const merged = { ...(serverPrefs && typeof serverPrefs === 'object' ? serverPrefs : {}) };
+    if (!localPrefs || typeof localPrefs !== 'object') return merged;
+    Object.keys(localPrefs).forEach((key) => {
+        const localVal = localPrefs[key];
+        const localStr = localVal == null ? '' : String(localVal).trim();
+        if (!localStr) return;
+        const serverStr = String(merged[key] == null ? '' : merged[key]).trim();
+        if (!serverStr || localStr.length > serverStr.length) {
+            merged[key] = localVal;
+        }
+    });
+    return merged;
+}
+
+function ensureSiteRecordComplete(site) {
+    if (!site || typeof site !== 'object') return site;
+    if (typeof window.ensureDefaultSiteData === 'function') {
+        window.ensureDefaultSiteData(site);
+    }
+    ensureSiteTabQuestions(site);
+    if (!site.financials || typeof site.financials !== 'object') {
+        site.financials = {
+            bankBalance: 0,
+            savingsBalance: 0,
+            cashIn: 0,
+            cashOut: 0,
+            invoicesOwed: 0,
+            billsToPay: 0,
+        };
+    }
+    if (!Array.isArray(site.invoices)) site.invoices = [];
+    if (!Array.isArray(site.bills)) site.bills = [];
+    if (!site.cashTransactions || typeof site.cashTransactions !== 'object') {
+        site.cashTransactions = { cashIn: [], cashOut: [] };
+    }
+    if (!site.monthlyCashFlow || typeof site.monthlyCashFlow !== 'object') {
+        site.monthlyCashFlow = {};
+    }
+    return site;
+}
+
+function ensureAllSitesRecordComplete() {
+    if (!appState.sites || typeof appState.sites !== 'object') return;
+    Object.keys(appState.sites).forEach((siteId) => {
+        ensureSiteRecordComplete(appState.sites[siteId]);
+    });
 }
 
 let orgPreferencesSaveTimer = null;
@@ -605,6 +721,10 @@ function createDefaultSitesState(companyName) {
                 billsToPay: 0,
             },
             tabQuestions: {},
+            invoices: [],
+            bills: [],
+            cashTransactions: { cashIn: [], cashOut: [] },
+            monthlyCashFlow: {},
         },
     };
 }
@@ -1357,6 +1477,12 @@ async function loadUserDataFromBackend() {
                 }
             }
             restoreCurrentSiteId();
+            if (appState.currentSite && appState.sites[appState.currentSite]) {
+                hydrateTabQuestionsFromLocalCache(
+                    appState.sites[appState.currentSite],
+                    appState.currentSite
+                );
+            }
             saveSitesToLocalStorage();
             sitesLoaded = true;
 
@@ -1376,17 +1502,27 @@ async function loadUserDataFromBackend() {
             }
 
             if (window.OrgPreferences?.hydrateFromServer) {
+                const legacy = collectLegacyOrgPreferencesFromLocalStorage();
                 if (hasServerPrefs) {
-                    window.OrgPreferences.hydrateFromServer(serverPrefs);
-                } else {
-                    const legacy = collectLegacyOrgPreferencesFromLocalStorage();
+                    const mergedPrefs = mergeOrgPreferencesPreferLocal(serverPrefs, legacy);
+                    window.OrgPreferences.hydrateFromServer(mergedPrefs);
                     if (Object.keys(legacy).length > 0) {
-                        window.OrgPreferences.hydrateFromServer(legacy);
                         scheduleOrgPreferencesSave();
-                    } else {
-                        window.OrgPreferences.hydrateFromServer({});
                     }
+                } else if (Object.keys(legacy).length > 0) {
+                    window.OrgPreferences.hydrateFromServer(legacy);
+                    scheduleOrgPreferencesSave();
+                } else {
+                    window.OrgPreferences.hydrateFromServer({});
                 }
+                const mergedForSite =
+                    hasServerPrefs && serverPrefs
+                        ? mergeOrgPreferencesPreferLocal(
+                              serverPrefs,
+                              collectLegacyOrgPreferencesFromLocalStorage()
+                          )
+                        : collectLegacyOrgPreferencesFromLocalStorage();
+                applyCurrentSiteFromOrgPrefs(mergedForSite);
             }
         }
     } catch (err) {
@@ -1454,9 +1590,11 @@ async function saveUserDataToBackend(options) {
     const token = getActiveAuthToken();
     if (!token) return false;
 
+    syncTabQuestionsFromDomToSite();
     if (typeof saveCurrentSiteData === 'function') {
         saveCurrentSiteData();
     }
+    ensureAllSitesRecordComplete();
     saveSitesToLocalStorage();
     if (siteDataSaveTimer) {
         clearTimeout(siteDataSaveTimer);
@@ -1549,6 +1687,10 @@ document.getElementById('logoutBtn')?.addEventListener('click', async function()
 
 document.getElementById('orgUserSettingsBtn')?.addEventListener('click', function() {
     window.location.href = 'organization-users.html';
+});
+
+document.getElementById('orgAuditLogBtn')?.addEventListener('click', function() {
+    window.location.href = 'organization-audit-log.html';
 });
 
 document.getElementById('switchOrgBtn')?.addEventListener('click', function() {
@@ -1673,12 +1815,13 @@ function initializeTabs() {
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             const tabName = btn.getAttribute('data-tab');
+            const notesEl = document.getElementById('tabQuestionNotesInput');
             const prevTab = getActiveDataInputTabKey();
-            if (prevTab && prevTab !== tabName) {
-                flushTabQuestionNotesForCategory(prevTab);
-                if (typeof saveCurrentSiteData === 'function') {
-                    saveCurrentSiteData();
-                }
+            if (prevTab && prevTab !== tabName && notesEl) {
+                persistTabQuestionNotesForCategory(prevTab, notesEl.value || '');
+            }
+            if (typeof saveCurrentSiteData === 'function') {
+                saveCurrentSiteData();
             }
             setActiveTab(tabName);
         });
@@ -1693,7 +1836,7 @@ function initializeTabs() {
             const leavingDataInput =
                 dataInputSection?.classList.contains('active') && subName !== 'data-input';
             if (leavingDataInput) {
-                flushActiveTabQuestionNotes();
+                syncTabQuestionsFromDomToSite();
                 if (typeof saveCurrentSiteData === 'function') {
                     saveCurrentSiteData();
                 }
@@ -1825,7 +1968,11 @@ function switchSite(siteId) {
     }
 
     appState.currentSite = siteId;
-    
+    persistCurrentSiteId();
+    if (typeof scheduleOrgPreferencesSave === 'function') {
+        scheduleOrgPreferencesSave();
+    }
+
     document.querySelectorAll('.site-item').forEach(item => {
         item.classList.remove('active');
     });
@@ -2459,6 +2606,9 @@ function loadSitesFromLocalStorage(options) {
     }
     normalizeAllSitesDataShape();
     restoreCurrentSiteId();
+    Object.keys(appState.sites || {}).forEach((siteId) => {
+        hydrateTabQuestionsFromLocalCache(appState.sites[siteId], siteId);
+    });
     if (rebuildUI) {
         rebuildSitesUIFromState();
     }
@@ -2513,6 +2663,7 @@ function loadSiteData(siteId) {
     }
 
     ensureSiteTabQuestions(site);
+    hydrateTabQuestionsFromLocalCache(site, siteId);
     updateTabQuestionUI(getActiveDataInputTabKey());
 
     if (window.carbonCalc?.loadCanonicalCalendarFromSiteData) {
@@ -2657,8 +2808,8 @@ function saveCurrentSiteData() {
         site.companyName = nameInput.value || '';
     }
     
+    syncTabQuestionsFromDomToSite();
     collectCurrentSiteDataInput(site);
-    flushActiveTabQuestionNotes();
     
     // Save financial data (already saved by updateFinancialWidget, but ensure consistency)
     if (site.financials) {
@@ -2682,9 +2833,11 @@ function saveCurrentSiteData() {
 window.saveCurrentSiteData = saveCurrentSiteData;
 
 function updateTabQuestionUI(category) {
-    const site = appState.sites[appState.currentSite];
+    const siteId = appState.currentSite;
+    const site = appState.sites[siteId];
     if (!site || !category) return;
     ensureSiteTabQuestions(site);
+    hydrateTabQuestionsFromLocalCache(site, siteId);
     appState.activeDataTab = category;
     const promptEl = document.getElementById('tabQuestionPromptText');
     const notesEl = document.getElementById('tabQuestionNotesInput');
@@ -2692,6 +2845,7 @@ function updateTabQuestionUI(category) {
         promptEl.textContent = TAB_QUESTION_PROMPTS[category] || 'Add supporting notes and answers for this tab.';
     }
     if (notesEl) {
+        notesEl.dataset.activeCategory = category;
         notesEl.value = site.tabQuestions[category] || '';
     }
 }
@@ -3241,6 +3395,11 @@ async function initializeApp() {
     if (orgUserSettingsBtn) {
         orgUserSettingsBtn.style.display = isOrgAdmin && !isPlatformAdmin && !isConsultant ? 'inline-flex' : 'none';
     }
+    const orgAuditLogBtn = document.getElementById('orgAuditLogBtn');
+    if (orgAuditLogBtn) {
+        const canAudit = isOrgAdmin || isPlatformAdmin || isConsultant;
+        orgAuditLogBtn.style.display = canAudit ? 'inline-flex' : 'none';
+    }
     const switchOrgBtn = document.getElementById('switchOrgBtn');
     if (switchOrgBtn) {
         switchOrgBtn.style.display = isPlatformAdmin || isConsultant ? 'inline-flex' : 'none';
@@ -3341,15 +3500,19 @@ async function initializeApp() {
     const tabQuestionNotesInput = document.getElementById('tabQuestionNotesInput');
     if (tabQuestionNotesInput && tabQuestionNotesInput.dataset.bound !== '1') {
         tabQuestionNotesInput.dataset.bound = '1';
-        tabQuestionNotesInput.addEventListener('input', () => {
-            const site = appState.sites[appState.currentSite];
+        const onTabQuestionNotesChange = () => {
             const activeTab = getActiveDataInputTabKey();
-            if (!site || !activeTab) return;
+            if (!activeTab) return;
             persistTabQuestionNotesForCategory(activeTab, tabQuestionNotesInput.value || '');
             saveSitesToLocalStorage();
             scheduleSiteDataSave();
+        };
+        tabQuestionNotesInput.addEventListener('input', onTabQuestionNotesChange);
+        tabQuestionNotesInput.addEventListener('change', onTabQuestionNotesChange);
+        tabQuestionNotesInput.addEventListener('blur', () => {
+            onTabQuestionNotesChange();
+            saveCurrentSiteData();
         });
-        tabQuestionNotesInput.addEventListener('blur', () => saveCurrentSiteData());
     }
 
     // QA checklist (internal QA user only)
@@ -3362,6 +3525,9 @@ async function initializeApp() {
                 const state = getQaChecklistState();
                 state[key] = el.checked;
                 localStorage.setItem(QA_CHECKLIST_KEY, JSON.stringify(state));
+                if (typeof scheduleOrgPreferencesSave === 'function') {
+                    scheduleOrgPreferencesSave();
+                }
                 renderQaState();
             });
         });
@@ -3592,7 +3758,10 @@ function toggleDarkMode() {
     }
     
     localStorage.setItem('darkMode', appState.darkMode);
-    
+    if (typeof scheduleOrgPreferencesSave === 'function') {
+        scheduleOrgPreferencesSave();
+    }
+
     const icon = document.querySelector('#darkModeToggle i');
     if (icon) {
         icon.className = appState.darkMode ? 'fas fa-sun' : 'fas fa-moon';
@@ -3635,6 +3804,9 @@ function toggleLanguage() {
     appState.currentLanguage = appState.currentLanguage === 'en' ? 'pt' : 'en';
     localStorage.setItem('language', appState.currentLanguage);
     updateLanguage();
+    if (typeof scheduleOrgPreferencesSave === 'function') {
+        scheduleOrgPreferencesSave();
+    }
     if (window.carbonCalc?.refreshDataTableMonthHeaders) {
         window.carbonCalc.refreshDataTableMonthHeaders();
     }

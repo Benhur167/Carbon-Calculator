@@ -116,6 +116,9 @@ function getChartPrefs() {
 
 function saveChartPrefs(prefs) {
     localStorage.setItem(CHART_PREFS_KEY, JSON.stringify(prefs));
+    if (typeof window.scheduleOrgPreferencesSave === 'function') {
+        window.scheduleOrgPreferencesSave();
+    }
 }
 
 function getChartConfig(chartId) {

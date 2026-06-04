@@ -64,6 +64,7 @@ async function loadWorkbench() {
                     <td>${name}</td>
                     <td>
                         <button type="button" class="btn-link" data-action="open-org" data-org-id="${id}" data-org-name="${String(name).replace(/"/g, '&quot;')}">Open data</button>
+                        <button type="button" class="btn-link" data-action="audit-log" data-org-id="${id}" data-org-name="${String(name).replace(/"/g, '&quot;')}">Audit log</button>
                         <button type="button" class="btn-link" data-action="remove-workbench" data-org-id="${id}">Remove from workbench</button>
                     </td>
                 </tr>`;
@@ -168,6 +169,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!orgId) return;
         if (action === 'open-org') {
             openOrganization(orgId, orgName);
+        } else if (action === 'audit-log') {
+            openOrganization(orgId, orgName);
+            window.location.href = 'organization-audit-log.html';
         } else if (action === 'remove-workbench') {
             removeFromWorkbench(orgId);
         }

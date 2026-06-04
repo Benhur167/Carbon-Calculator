@@ -5,6 +5,15 @@
 let invoicesChart = null;
 let monthlyCashFlowChart = null;
 
+function persistSiteFinancials() {
+    if (typeof saveSitesToLocalStorage === 'function') {
+        persistSiteFinancials();
+    }
+    if (typeof window.scheduleSiteDataSave === 'function') {
+        window.scheduleSiteDataSave();
+    }
+}
+
 // Initialize invoices data structure
 function initInvoicesData() {
     const site = appState.sites[appState.currentSite];
@@ -17,7 +26,7 @@ function initInvoicesData() {
         site.monthlyCashFlow = {};
     }
     
-    saveSitesToLocalStorage();
+    persistSiteFinancials();
 }
 
 // Open invoice modal
@@ -84,7 +93,7 @@ function saveInvoice() {
         site.invoices.push(invoiceData);
     }
     
-    saveSitesToLocalStorage();
+    persistSiteFinancials();
     closeInvoiceModal();
     updateInvoicesChart();
     updateInvoicesSummary();
@@ -123,7 +132,7 @@ function updateInvoicesOwedWidget() {
         widget.textContent = `$${totalOwed.toFixed(2)}`;
     }
     
-    saveSitesToLocalStorage();
+    persistSiteFinancials();
 }
 
 // Delete invoice
@@ -136,7 +145,7 @@ function deleteInvoice(invoiceId) {
     if (!site || !site.invoices) return;
     
     site.invoices = site.invoices.filter(inv => inv.id !== invoiceId);
-    saveSitesToLocalStorage();
+    persistSiteFinancials();
     updateInvoicesChart();
     updateInvoicesSummary();
     if (window.renderInvoicesTable) {
@@ -460,7 +469,7 @@ function initBillsData() {
         site.bills = [];
     }
     
-    saveSitesToLocalStorage();
+    persistSiteFinancials();
 }
 
 // Open bill modal
@@ -541,7 +550,7 @@ function saveBill() {
     console.log('Bills after saveBill:', site.bills);
     
     // Save immediately
-    saveSitesToLocalStorage();
+    persistSiteFinancials();
     if (window.saveCurrentSiteData) {
         window.saveCurrentSiteData();
     }
@@ -581,7 +590,7 @@ function deleteBill(billId) {
     if (!site || !site.bills) return;
     
     site.bills = site.bills.filter(bill => bill.id !== billId);
-    saveSitesToLocalStorage();
+    persistSiteFinancials();
     updateBillsChart();
     updateBillsSummary();
     updateBillsToPayWidget();
@@ -917,7 +926,7 @@ function updateBillsToPayWidget() {
         widgetAccounts.textContent = `$${totalToPay.toFixed(2)}`;
     }
     
-    saveSitesToLocalStorage();
+    persistSiteFinancials();
 }
 
 // Export functions
