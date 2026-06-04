@@ -289,6 +289,7 @@ function syncPieChartPeriodControls() {
     if (!periodSel) return;
 
     const years = window.carbonCalc?.collectDataYears?.() || [new Date().getFullYear()];
+    const yearsKey = years.join(',');
     const defaultYear = pickDefaultPieChartYear();
     if (_pieChartYearValue == null || !years.includes(_pieChartYearValue)) {
         _pieChartYearValue = defaultYear;
@@ -296,26 +297,35 @@ function syncPieChartPeriodControls() {
 
     if (yearSel) {
         yearSel.style.display = isYearly ? 'none' : '';
-        yearSel.innerHTML = years
-            .map((y) => `<option value="${y}">${y}</option>`)
-            .join('');
+        if (yearSel.dataset.yearsKey !== yearsKey) {
+            yearSel.innerHTML = years
+                .map((y) => `<option value="${y}">${y}</option>`)
+                .join('');
+            yearSel.dataset.yearsKey = yearsKey;
+        }
         yearSel.value = String(_pieChartYearValue);
     }
 
     if (isYearly) {
-        periodSel.innerHTML = years
-            .map((y) => `<option value="${y}">${y}</option>`)
-            .join('');
-        const currentYear = parseInt(periodSel.value, 10);
-        periodSel.value = years.includes(currentYear) ? String(currentYear) : String(_pieChartYearValue);
-        _pieChartYearValue = parseInt(periodSel.value, 10) || _pieChartYearValue;
+        const optKey = `yearly:${yearsKey}`;
+        if (periodSel.dataset.optKey !== optKey) {
+            periodSel.innerHTML = years
+                .map((y) => `<option value="${y}">${y}</option>`)
+                .join('');
+            periodSel.dataset.optKey = optKey;
+        }
+        periodSel.value = String(_pieChartYearValue);
     } else {
         const monthLabels = getMonthLabels();
-        periodSel.innerHTML = monthLabels
-            .map((label, idx) => `<option value="${idx}">${label}</option>`)
-            .join('');
+        const optKey = `monthly:${appState.currentLanguage}`;
+        if (periodSel.dataset.optKey !== optKey) {
+            periodSel.innerHTML = monthLabels
+                .map((label, idx) => `<option value="${idx}">${label}</option>`)
+                .join('');
+            periodSel.dataset.optKey = optKey;
+        }
         if (_pieChartMonthIndex == null) {
-            _pieChartMonthIndex = pickDefaultPieChartMonth(getPieChartSelectedYear());
+            _pieChartMonthIndex = pickDefaultPieChartMonth(_pieChartYearValue);
         }
         periodSel.value = String(_pieChartMonthIndex);
     }
@@ -366,23 +376,26 @@ function bindCategoryTrendGranularitySelect(category) {
     });
 }
 
-function getCategoryChartColor(category, index) {
-    const cfg = getChartConfig('pieChart');
-    const cats = getEmissionCategories();
-    const palette = defaultPaletteColors(cats.length);
-    const catIndex = cats.indexOf(category);
-    const fallback =
-        CATEGORY_CHART_COLORS[category] || palette[catIndex >= 0 ? catIndex : index];
+/** Stable color from category id (same category always same color). */
+function hashCategoryToColor(category) {
+    let hash = 0;
+    const id = String(category || '');
+    for (let i = 0; i < id.length; i++) {
+        hash = ((hash << 5) - hash) + id.charCodeAt(i);
+        hash |= 0;
+    }
+    return CATEGORY_COLOR_PALETTE[Math.abs(hash) % CATEGORY_COLOR_PALETTE.length];
+}
 
+function getCategoryChartColor(category) {
+    const cfg = getChartConfig('pieChart');
     if (cfg.categoryColors?.[category]) return cfg.categoryColors[category];
+    if (CATEGORY_CHART_COLORS[category]) return CATEGORY_CHART_COLORS[category];
     if (cfg.sliceKeys?.length && cfg.colors?.length) {
         const storedIdx = cfg.sliceKeys.indexOf(category);
         if (storedIdx >= 0 && cfg.colors[storedIdx]) return cfg.colors[storedIdx];
     }
-    if (cfg.colors?.length && !cfg.sliceKeys?.length && catIndex >= 0 && cfg.colors[catIndex]) {
-        return cfg.colors[catIndex];
-    }
-    return fallback;
+    return hashCategoryToColor(category);
 }
 
 function chartModalTitle(chartId) {
@@ -412,7 +425,7 @@ function buildChartStyleFormHtml(chartId) {
         const stored = prefs.charts.pieChart?.colors || defaultPaletteColors(keys.length || 5);
         keys.forEach((key, idx) => {
             const label = getCategoryDisplayName(key);
-            const val = stored[idx] || getCategoryChartColor(key, idx);
+            const val = stored[idx] || getCategoryChartColor(key);
             colorSection += `
                 <div class="chart-style-color-row">
                     <span>${label}</span>
@@ -589,7 +602,7 @@ function resetChartStyleDefaults() {
 }
 
 function resolvePieColors(keys) {
-    return keys.map((key, idx) => getCategoryChartColor(key, idx));
+    return keys.map((key) => getCategoryChartColor(key));
 }
 
 function chartLabelForUnit() {
