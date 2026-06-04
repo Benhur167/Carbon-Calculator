@@ -7,10 +7,10 @@
 // EXPORT TO PDF
 // ============================================
 
-function exportToPDF() {
+async function exportToPDF() {
     if (typeof window.generateFinalReportDOCX === 'function') {
         const en = window.appState?.currentLanguage !== 'pt';
-        const useStatement = confirm(
+        const useStatement = await showAppConfirm(
             en
                 ? 'Export the Carbon Emission Statement (Word template)?\n\nOK = download statement DOCX (recommended)\nCancel = quick summary PDF'
                 : 'Exportar o Relatório de Emissões (modelo Word)?\n\nOK = baixar DOCX do relatório (recomendado)\nCancelar = PDF resumido rápido'
@@ -487,7 +487,7 @@ function importFactorsFromExcel(file, baseName) {
     }
 
     const reader = new FileReader();
-    reader.onload = function (e) {
+    reader.onload = async function (e) {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
@@ -523,7 +523,7 @@ function importFactorsFromExcel(file, baseName) {
                 return;
             }
 
-            const userName = prompt(
+            const userName = await showAppPrompt(
                 appState.currentLanguage === 'en'
                     ? 'Enter a name for this factors database (e.g. MyDB_2025):'
                     : 'Digite um nome para esta base de fatores (ex: MeuBD_2025):',

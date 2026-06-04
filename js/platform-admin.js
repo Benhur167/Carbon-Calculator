@@ -187,7 +187,7 @@ async function handleAddOrg(e) {
 }
 
 async function deleteOrganization(orgId, orgName) {
-    const adminPassword = prompt(
+    const adminPassword = await showAppPasswordPrompt(
         `Removing "${orgName}" deletes all its data and users.\n\nEnter your admin password to confirm:`
     );
     if (adminPassword === null) return;
@@ -215,7 +215,7 @@ async function deleteOrganization(orgId, orgName) {
 }
 
 async function removeConsultant(username) {
-    if (!confirm(`Remove consultant "${username}"?`)) return;
+    if (!(await showAppConfirm(`Remove consultant "${username}"?`))) return;
     const errEl = document.getElementById('consultantsError');
     const token = localStorage.getItem('authToken');
     try {

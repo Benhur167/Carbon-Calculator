@@ -157,15 +157,15 @@ async function loadUsers() {
 }
 
 async function editUser(username) {
-    const newFullName = prompt('Full name (leave empty to keep as-is):');
+    const newFullName = await showAppPrompt('Full name (leave empty to keep as-is):');
     if (newFullName === null) return;
-    const newEmail = prompt('Email (leave empty to clear, keep current if unchanged):');
+    const newEmail = await showAppPrompt('Email (leave empty to clear, keep current if unchanged):');
     if (newEmail === null) return;
-    const newPhone = prompt('Phone (leave empty to clear, keep current if unchanged):');
+    const newPhone = await showAppPrompt('Phone (leave empty to clear, keep current if unchanged):');
     if (newPhone === null) return;
-    const newUsername = prompt('Username (leave empty to keep current):');
+    const newUsername = await showAppPrompt('Username (leave empty to keep current):');
     if (newUsername === null) return;
-    const newPassword = prompt('New password (leave empty to keep current):');
+    const newPassword = await showAppPrompt('New password (leave empty to keep current):');
     if (newPassword === null) return;
 
     const payload = {};
@@ -174,10 +174,10 @@ async function editUser(username) {
     if (newPhone !== '') payload.phone = newPhone;
     if (newUsername !== '') payload.username = newUsername;
     if (newPassword !== '') {
-        const confirm = prompt('Confirm new password:');
-        if (confirm === null) return;
+        const confirmPassword = await showAppPrompt('Confirm new password:');
+        if (confirmPassword === null) return;
         payload.password = newPassword;
-        payload.confirm_password = confirm;
+        payload.confirm_password = confirmPassword;
     }
     if (!Object.keys(payload).length) return;
 
@@ -204,7 +204,7 @@ async function editUser(username) {
 }
 
 async function deleteUser(username) {
-    if (!confirm(`Remove user "${username}"?`)) return;
+    if (!(await showAppConfirm(`Remove user "${username}"?`))) return;
     const token = localStorage.getItem('authToken');
     const errEl = document.getElementById('usersError');
     try {

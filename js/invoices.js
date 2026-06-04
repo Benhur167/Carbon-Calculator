@@ -136,8 +136,8 @@ function updateInvoicesOwedWidget() {
 }
 
 // Delete invoice
-function deleteInvoice(invoiceId) {
-    if (!confirm(appState.currentLanguage === 'en' ? 'Are you sure you want to delete this invoice?' : 'Tem certeza que deseja excluir esta fatura?')) {
+async function deleteInvoice(invoiceId) {
+    if (!(await showAppConfirm(appState.currentLanguage === 'en' ? 'Are you sure you want to delete this invoice?' : 'Tem certeza que deseja excluir esta fatura?'))) {
         return;
     }
     
@@ -581,8 +581,8 @@ function saveBill() {
 }
 
 // Delete bill
-function deleteBill(billId) {
-    if (!confirm(appState.currentLanguage === 'en' ? 'Are you sure you want to delete this bill?' : 'Tem certeza que deseja excluir esta conta?')) {
+async function deleteBill(billId) {
+    if (!(await showAppConfirm(appState.currentLanguage === 'en' ? 'Are you sure you want to delete this bill?' : 'Tem certeza que deseja excluir esta conta?'))) {
         return;
     }
     

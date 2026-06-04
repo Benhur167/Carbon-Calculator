@@ -1865,6 +1865,39 @@ body {
     background: var(--text-secondary);
 }
 
+/* App notification dialog (replaces browser alert/confirm/prompt) */
+.app-dialog-overlay {
+    z-index: 10050;
+}
+
+.app-dialog-content {
+    max-width: 420px;
+    width: 90%;
+}
+
+.app-dialog-message {
+    margin: 0;
+    white-space: pre-wrap;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.app-dialog-input {
+    width: 100%;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+    background: var(--bg-main);
+    color: var(--text-primary);
+}
+
+.app-dialog-input:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
 /* Widget Customization Modal */
 .widget-modal {
     position: fixed;

@@ -1815,7 +1815,7 @@ window.showDataSaveStatus = showDataSaveStatus;
 
 // LOGOUT
 document.getElementById('logoutBtn')?.addEventListener('click', async function() {
-    if (!confirm(appState.currentLanguage === 'en' ? 'Are you sure you want to logout?' : 'Tem certeza que deseja sair?')) {
+    if (!(await showAppConfirm(appState.currentLanguage === 'en' ? 'Are you sure you want to logout?' : 'Tem certeza que deseja sair?'))) {
         return;
     }
     try {
@@ -2050,8 +2050,8 @@ window.setActiveSubNav = setActiveSubNav;
 // SITE MANAGEMENT
 // ============================================
 
-document.getElementById('addSiteBtn')?.addEventListener('click', function() {
-    const siteName = prompt(
+document.getElementById('addSiteBtn')?.addEventListener('click', async function() {
+    const siteName = await showAppPrompt(
         appState.currentLanguage === 'en' 
             ? 'Enter building/event name:' 
             : 'Digite o nome do edifício/evento:'
@@ -2184,7 +2184,7 @@ function switchSite(siteId) {
     }, 200);
 }
 
-function deleteSite(siteId, element) {
+async function deleteSite(siteId, element) {
     if (Object.keys(appState.sites).length <= 1) {
         alert(appState.currentLanguage === 'en' 
             ? 'Cannot delete the last site!' 
@@ -2192,7 +2192,7 @@ function deleteSite(siteId, element) {
         return;
     }
     
-    if (confirm(appState.currentLanguage === 'en' 
+    if (await showAppConfirm(appState.currentLanguage === 'en' 
         ? 'Delete this site?' 
         : 'Excluir este local?')) {
         delete appState.sites[siteId];
@@ -2211,15 +2211,15 @@ function deleteSite(siteId, element) {
 // RESET ACCOUNTS DATA (CURRENT SITE)
 // ============================================
 
-function resetAccountsData() {
+async function resetAccountsData() {
     const siteId = appState.currentSite;
     const site = appState.sites[siteId];
 
     if (!site) return;
 
-    if (!confirm(appState.currentLanguage === 'en'
+    if (!(await showAppConfirm(appState.currentLanguage === 'en'
         ? 'Reset all account data (bank, savings, cash, invoices, bills)?'
-        : 'Redefinir todos os dados de contas (banco, poupança, caixa, faturas, contas)?')) {
+        : 'Redefinir todos os dados de contas (banco, poupança, caixa, faturas, contas)?'))) {
         return;
     }
 
@@ -2651,8 +2651,8 @@ function getEmissionSelectHtml(category, selectedKey, year) {
     return html;
 }
 
-function deleteRow(button) {
-    if (confirm(appState.currentLanguage === 'en' 
+async function deleteRow(button) {
+    if (await showAppConfirm(appState.currentLanguage === 'en' 
         ? 'Delete this row?' 
         : 'Excluir esta linha?')) {
         button.closest('tr').remove();

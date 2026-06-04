@@ -138,7 +138,7 @@ async function addToWorkbench(orgId) {
 }
 
 async function removeFromWorkbench(orgId) {
-    if (!confirm('Remove this organization from your workbench only (data is not deleted)?')) return;
+    if (!(await showAppConfirm('Remove this organization from your workbench only (data is not deleted)?'))) return;
     const errEl = document.getElementById('workbenchError');
     const token = localStorage.getItem('authToken');
     try {
