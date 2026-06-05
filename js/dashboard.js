@@ -1856,7 +1856,7 @@ function getDashboardChartExportSnapshots() {
     };
 }
 
-function _renderOffscreenChart(type, data, options, width = 920, height = 440) {
+function _renderOffscreenChart(type, data, options, width = 644, height = 308, chartPlugins = []) {
     if (typeof Chart === 'undefined') return null;
     const wrap = document.createElement('div');
     wrap.style.cssText = `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;pointer-events:none;opacity:0;overflow:hidden`;
@@ -1868,6 +1868,7 @@ function _renderOffscreenChart(type, data, options, width = 920, height = 440) {
     const chart = new Chart(canvas, {
         type,
         data,
+        plugins: chartPlugins,
         options: {
             animation: false,
             responsive: false,
@@ -1881,6 +1882,71 @@ function _renderOffscreenChart(type, data, options, width = 920, height = 440) {
     return img;
 }
 
+function _buildPieChartExportSnapshot() {
+    const reportingYear = window.carbonCalc?.getReportingYear?.() ?? new Date().getFullYear();
+    const totals = window.carbonCalc?.getCategoryTotalsForPieYear
+        ? window.carbonCalc.getCategoryTotalsForPieYear(reportingYear)
+        : window.carbonCalc.getCategoryTotals();
+    const pieKeys = getEmissionCategories().filter((key) => (totals[key] || 0) > 0);
+    if (!pieKeys.length) return null;
+
+    const labels = pieKeys.map((key) => getCategoryDisplayName(key));
+    const dataTonnes = pieKeys.map((key) => totals[key]);
+    const sliceColors = resolvePieColors(pieKeys);
+
+    return _renderOffscreenChart(
+        'pie',
+        {
+            labels,
+            datasets: [{
+                data: dataTonnes,
+                backgroundColor: sliceColors,
+                hoverBackgroundColor: sliceColors,
+                borderWidth: 2,
+                borderColor: '#ffffff',
+            }],
+        },
+        {
+            layout: { padding: { top: 16, bottom: 12, left: 16, right: 16 } },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    align: 'center',
+                    labels: {
+                        color: '#0F172A',
+                        boxWidth: 14,
+                        padding: 12,
+                        font: { size: 11, weight: '500', family: 'Inter, Arial, sans-serif' },
+                        generateLabels(chart) {
+                            const chartData = chart.data;
+                            if (!chartData.labels?.length || !chartData.datasets?.length) return [];
+                            const dataset = chartData.datasets[0];
+                            const total = dataset.data.reduce((a, b) => a + (Number(b) || 0), 0);
+                            return chartData.labels.map((label, i) => {
+                                const value = Number(dataset.data[i]) || 0;
+                                const bg = Array.isArray(dataset.backgroundColor)
+                                    ? dataset.backgroundColor[i]
+                                    : dataset.backgroundColor;
+                                return {
+                                    text: formatPieLegendLabel(label, value, total),
+                                    fillStyle: bg,
+                                    strokeStyle: bg,
+                                    fontColor: '#0F172A',
+                                    hidden: false,
+                                    index: i,
+                                };
+                            });
+                        },
+                    },
+                },
+            },
+        },
+        720,
+        720,
+        [pieSliceLabelsPlugin]
+    );
+}
+
 function buildDashboardChartSnapshotsForExport() {
     if (!window.carbonCalc) return {};
     if (window.carbonCalc.calculateAllTotals) {
@@ -1891,24 +1957,10 @@ function buildDashboardChartSnapshotsForExport() {
     const snaps = {};
     const monthLabels = getMonthLabels();
     const yearLabels = getDashboardYearLabels();
+    const chartW = 644;
+    const chartH = 308;
 
-    const totals = window.carbonCalc.getCategoryTotals();
-    const pieKeys = getEmissionCategories().filter((key) => (totals[key] || 0) > 0);
-    if (pieKeys.length) {
-        snaps.pieChart = _renderOffscreenChart(
-            'pie',
-            {
-                labels: pieKeys.map((key) => getCategoryDisplayName(key)),
-                datasets: [{
-                    data: pieKeys.map((key) => convertTonnesToDisplayValue(totals[key])),
-                    backgroundColor: resolvePieColors(pieKeys),
-                    borderWidth: 1,
-                    borderColor: '#ffffff',
-                }],
-            },
-            { plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } } }
-        );
-    }
+    snaps.pieChart = _buildPieChartExportSnapshot();
 
     const yearComparison = window.carbonCalc.getYearComparison();
     snaps.barChart = _renderOffscreenChart(
@@ -1928,7 +1980,9 @@ function buildDashboardChartSnapshotsForExport() {
                 y: { beginAtZero: true, ticks: { font: { size: 10 } } },
                 x: { ticks: { font: { size: 10 } } },
             },
-        }
+        },
+        chartW,
+        chartH
     );
 
     const monthlyTotals = window.carbonCalc.getMonthlyTotals();
@@ -1954,7 +2008,9 @@ function buildDashboardChartSnapshotsForExport() {
                 y: { beginAtZero: true, ticks: { font: { size: 10 } } },
                 x: { ticks: { font: { size: 10 } } },
             },
-        }
+        },
+        chartW,
+        chartH
     );
 
     const dataByCategory = window.carbonCalc.getMonthlyTotalsByCategory?.() || {};
@@ -1982,7 +2038,9 @@ function buildDashboardChartSnapshotsForExport() {
                 y: { beginAtZero: true, ticks: { font: { size: 10 } } },
                 x: { ticks: { font: { size: 10 } } },
             },
-        }
+        },
+        chartW,
+        chartH
     );
 
     snaps.sourceTrendByCategory = {};
@@ -2011,7 +2069,9 @@ function buildDashboardChartSnapshotsForExport() {
                     y: { beginAtZero: true, ticks: { font: { size: 10 } } },
                     x: { ticks: { font: { size: 10 } } },
                 },
-            }
+            },
+            chartW,
+            chartH
         );
     });
 

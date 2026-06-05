@@ -8,14 +8,77 @@
 // ============================================
 
 const _PERF_TABLE_ROWS = [
-    { scope: '1', label: 'Natural gas used for company facilities', key: 'natural_gas' },
-    { scope: '2', label: 'Electricity used for company facilities', key: 'electricity' },
-    { scope: '3', label: 'Electricity (transmission and distribution)', key: 'electricity_td' },
-    { scope: '', label: 'Water use', key: 'water' },
-    { scope: '', label: 'Wastewater', key: 'wastewater' },
-    { scope: '', label: 'Waste (to energy)', key: 'waste_to_energy' },
-    { scope: '', label: 'Waste (to recycling)', key: 'waste_to_recycling' },
+    { scope: '1', label: 'Natural gas used for company facilities', key: 'natural_gas', fill: 'scope1' },
+    { scope: '2', label: 'Electricity used for company facilities', key: 'electricity', fill: 'scope2' },
+    { scope: '3', label: 'Electricity (transmission and distribution)', key: 'electricity_td', fill: 'scope3' },
+    { scope: '', label: 'Water use', key: 'water', fill: 'scope3' },
+    { scope: '', label: 'Wastewater', key: 'wastewater', fill: 'scope3' },
+    { scope: '', label: 'Waste (to energy)', key: 'waste_to_energy', fill: 'scope3' },
+    { scope: '', label: 'Waste (to recycling)', key: 'waste_to_recycling', fill: 'scope3' },
 ];
+
+/** Template v1.1 palette (from requirements/Carbon emmission statement report template_v1.1.docx). */
+const _PDF = {
+    ORANGE: [209, 175, 113],       // D9AF71 — title, headers, sidebar lower, totals
+    ORANGE_DARK: [209, 176, 122],  // D1B07A — document control header
+    GREEN: [214, 227, 188],        // D6E3BC — sidebar upper, scope 3 rows
+    GREEN_TEXT: [108, 132, 76],    // readable section headings on white
+    SCOPE1: [229, 223, 236],       // E5DFEC
+    SCOPE2: [251, 212, 180],       // FBD4B4
+    GREY_HEADER: [166, 166, 166],
+    BORDER: [180, 180, 180],
+};
+
+const _PDF_PAGE_W = 210;
+const _PDF_SIDEBAR_W = 16;
+const _PDF_CONTENT_X = 22;
+const _PDF_CHART_SCALE = 0.7;
+
+function _pdfFillForPerfRow(fillKey) {
+    if (fillKey === 'scope1') return _PDF.SCOPE1;
+    if (fillKey === 'scope2') return _PDF.SCOPE2;
+    return _PDF.GREEN;
+}
+
+function _pdfDrawCoverSidebar(doc) {
+    const pageH = doc.internal.pageSize.getHeight();
+    const splitY = pageH * 0.38;
+    doc.setFillColor(..._PDF.GREEN);
+    doc.rect(0, 0, _PDF_SIDEBAR_W, splitY + 5, 'F');
+    doc.setFillColor(..._PDF.ORANGE);
+    doc.rect(0, splitY - 3, _PDF_SIDEBAR_W, pageH - splitY + 3, 'F');
+    doc.setFillColor(255, 255, 255);
+    doc.ellipse(_PDF_SIDEBAR_W / 2, splitY, _PDF_SIDEBAR_W + 2, 9, 'F');
+}
+
+function _pdfDrawRunningHeader(doc, pageNum) {
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(..._PDF.GREY_HEADER);
+    doc.text(`Carbon Emissions Statement ${pageNum}`, _PDF_PAGE_W - 14, 12, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+}
+
+function _pdfSectionHeading(doc, text, x, y, centered = false) {
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(..._PDF.GREEN_TEXT);
+    if (centered) {
+        doc.text(text, _PDF_PAGE_W / 2, y, { align: 'center' });
+    } else {
+        doc.text(text, x, y);
+    }
+    doc.setTextColor(0, 0, 0);
+}
+
+function _pdfCenteredImage(doc, dataUrl, y, w, h) {
+    const x = (_PDF_PAGE_W - w) / 2;
+    return _pdfAddChartImage(doc, dataUrl, x, y, w, h);
+}
+
+function _pdfScaledSize(w, h, scale = _PDF_CHART_SCALE) {
+    return { w: w * scale, h: h * scale };
+}
 
 function _chartImageFromCanvas(canvasId) {
     const el = document.getElementById(canvasId);
@@ -53,7 +116,7 @@ function _buildScopeDoughnutImage(scope1Kg, scope2Kg, scope3Kg) {
             labels: ['Scope 1', 'Scope 2', 'Scope 3'],
             datasets: [{
                 data: [s1, s2, s3],
-                backgroundColor: ['#DC3545', '#FFC107', '#0EA5E9'],
+                backgroundColor: ['#E5DFEC', '#FBD4B4', '#D6E3BC'],
             }],
         },
         options: {
@@ -130,27 +193,27 @@ function _getPerfRowDisplay(key, perfRows, perfValues) {
     return { usage: String(usage || ''), factor: String(factor || ''), emissionsDisp, scopeDisp };
 }
 
-const _PDF_TABLE_HEAD_FILL = [19, 181, 234];
+const _PDF_TABLE_HEAD_FILL = _PDF.ORANGE;
 
 function _pdfHasAutoTable(doc) {
     return typeof doc.autoTable === 'function';
 }
 
-function _pdfStatementTitle(doc, y) {
-    _addLogo(doc);
-    doc.setFontSize(22);
+function _pdfDrawCoverTitle(doc) {
+    doc.setFontSize(34);
     doc.setFont(undefined, 'bold');
+    doc.setTextColor(..._PDF.ORANGE);
+    doc.text('Carbon Emissions', _PDF_CONTENT_X, 92);
+    doc.text('Statement', _PDF_CONTENT_X, 106);
     doc.setTextColor(0, 0, 0);
-    doc.text('Carbon Emissions', 105, y, { align: 'center' });
-    doc.text('Statement', 105, y + 10, { align: 'center' });
-    return y + 22;
 }
 
 function _pdfDrawReportDetailPage(doc, payload) {
-    let y = _pdfStatementTitle(doc, 28);
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
-    doc.text('Report Detail', 14, y + 8);
+    _pdfDrawCoverSidebar(doc);
+    _pdfDrawRunningHeader(doc, 1);
+    _pdfDrawCoverTitle(doc);
+
+    _pdfSectionHeading(doc, 'Report Detail', _PDF_CONTENT_X, 218);
 
     const body = [
         ['Project Number', String(payload.project_number || '')],
@@ -160,30 +223,33 @@ function _pdfDrawReportDetailPage(doc, payload) {
 
     if (_pdfHasAutoTable(doc)) {
         doc.autoTable({
-            startY: y + 12,
-            margin: { left: 14, right: 14 },
-            head: [['Field', 'Value']],
+            startY: 224,
+            margin: { left: _PDF_CONTENT_X, right: 14 },
             body,
             theme: 'grid',
-            styles: { fontSize: 10, cellPadding: 3, lineColor: [180, 180, 180], lineWidth: 0.2 },
-            headStyles: { fillColor: _PDF_TABLE_HEAD_FILL, textColor: 255, fontStyle: 'bold' },
+            styles: {
+                fontSize: 10,
+                cellPadding: 4,
+                lineColor: _PDF.BORDER,
+                lineWidth: 0.2,
+                valign: 'middle',
+            },
             columnStyles: {
-                0: { cellWidth: 62, fontStyle: 'bold' },
+                0: { cellWidth: 62, fontStyle: 'bold', fillColor: _PDF.ORANGE, textColor: 255 },
                 1: { cellWidth: 'auto' },
             },
         });
     } else {
-        let rowY = y + 18;
+        let rowY = 232;
         body.forEach(([label, value]) => {
-            rowY = _pdfDrawLabelValue(doc, label, value, 14, rowY, 120);
+            rowY = _pdfDrawLabelValue(doc, label, value, _PDF_CONTENT_X, rowY, 118);
         });
     }
 }
 
 function _pdfDrawDocumentControlPage(doc, payload) {
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
-    doc.text('Document Control', 14, 24);
+    _pdfDrawRunningHeader(doc, 2);
+    _pdfSectionHeading(doc, 'Document Control', 14, 28);
 
     const body = [[
         payload.version ? `Version ${payload.version}` : '',
@@ -192,19 +258,19 @@ function _pdfDrawDocumentControlPage(doc, payload) {
 
     if (_pdfHasAutoTable(doc)) {
         doc.autoTable({
-            startY: 30,
+            startY: 34,
             margin: { left: 14, right: 14 },
             head: [['Report version', 'Issue Date']],
             body,
             theme: 'grid',
-            styles: { fontSize: 10, cellPadding: 4, lineColor: [180, 180, 180], lineWidth: 0.2 },
-            headStyles: { fillColor: _PDF_TABLE_HEAD_FILL, textColor: 255, fontStyle: 'bold' },
+            styles: { fontSize: 10, cellPadding: 4, lineColor: _PDF.BORDER, lineWidth: 0.2 },
+            headStyles: { fillColor: _PDF.ORANGE_DARK, textColor: 255, fontStyle: 'bold', halign: 'center' },
             columnStyles: { 0: { cellWidth: 90 }, 1: { cellWidth: 'auto' } },
         });
     } else {
         doc.setFontSize(10);
-        doc.text(`Version ${payload.version || '1.0'}`, 14, 40);
-        doc.text(String(payload.issue_date || ''), 110, 40);
+        doc.text(`Version ${payload.version || '1.0'}`, 14, 44);
+        doc.text(String(payload.issue_date || ''), 110, 44);
     }
 }
 
@@ -225,44 +291,53 @@ function _pdfDrawPerformanceTable(doc, payload, grandTotalKg) {
         return [scope, label, d.usage, d.factor, d.emissionsDisp, d.scopeDisp];
     });
     body.push(['', 'Total gross CO2 emissions (kg CO2e)', '', '', _formatKgReport(grandTotalKg), '']);
+    const rowFillKeys = _PERF_TABLE_ROWS.map((r) => r.fill);
 
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
-    doc.text('Performance', 14, 16);
+    _pdfDrawRunningHeader(doc, 3);
+    _pdfSectionHeading(doc, 'Performance', 14, 20);
 
     if (_pdfHasAutoTable(doc)) {
         doc.autoTable({
-            startY: 22,
-            margin: { left: 8, right: 8 },
+            startY: 26,
+            margin: { left: 10, right: 10 },
             head: [headers],
             body,
             theme: 'grid',
             styles: {
-                fontSize: 7.5,
-                cellPadding: 2,
+                fontSize: 7,
+                cellPadding: 2.2,
                 overflow: 'linebreak',
-                lineColor: [160, 160, 160],
+                lineColor: _PDF.BORDER,
                 lineWidth: 0.15,
                 valign: 'middle',
+                textColor: [40, 40, 40],
             },
             headStyles: {
-                fillColor: _PDF_TABLE_HEAD_FILL,
+                fillColor: _PDF.ORANGE,
                 textColor: 255,
                 fontStyle: 'bold',
                 halign: 'center',
             },
             columnStyles: {
-                0: { cellWidth: 12, halign: 'center' },
-                1: { cellWidth: 58 },
+                0: { cellWidth: 11, halign: 'center' },
+                1: { cellWidth: 52 },
                 2: { cellWidth: 28, halign: 'right' },
-                3: { cellWidth: 34, halign: 'right' },
-                4: { cellWidth: 32, halign: 'right' },
-                5: { cellWidth: 32, halign: 'right' },
+                3: { cellWidth: 32, halign: 'right' },
+                4: { cellWidth: 30, halign: 'right' },
+                5: { cellWidth: 30, halign: 'right' },
             },
             didParseCell(data) {
-                if (data.section === 'body' && data.row.index === body.length - 1) {
+                if (data.section !== 'body') return;
+                const isTotal = data.row.index === body.length - 1;
+                if (isTotal) {
                     data.cell.styles.fontStyle = 'bold';
-                    data.cell.styles.fillColor = [245, 245, 245];
+                    data.cell.styles.fillColor = _PDF.ORANGE;
+                    data.cell.styles.textColor = 255;
+                    return;
+                }
+                const fillKey = rowFillKeys[data.row.index];
+                if (fillKey) {
+                    data.cell.styles.fillColor = _pdfFillForPerfRow(fillKey);
                 }
             },
         });
@@ -307,7 +382,7 @@ function _pdfDrawCategoryBars(doc, totals, x, y, barMaxWidth) {
         const label = _categoryLabel(entry.key).slice(0, 28);
         doc.text(label, x, rowY);
         const barW = (entry.val / max) * barMaxWidth;
-        doc.setFillColor(14, 165, 233);
+        doc.setFillColor(..._PDF.ORANGE);
         doc.rect(x + 58, rowY - 4, barW, 5, 'F');
         doc.text(`${entry.val.toFixed(3)} tCO2e`, x + 58 + barW + 2, rowY);
     });
@@ -351,72 +426,89 @@ async function exportDashboardReportPDF() {
 
     _pdfDrawReportDetailPage(doc, payload);
 
-    doc.addPage();
+    doc.addPage('a4', 'p');
     _pdfDrawDocumentControlPage(doc, payload);
 
-    doc.addPage('a4', 'landscape');
+    doc.addPage('a4', 'p');
     _pdfDrawPerformanceTable(doc, payload, grandTotalKg);
 
-    doc.addPage('a4', 'portrait');
+    const pieSize = 108;
+    const chartBar = _pdfScaledSize(182, 88);
+    const chartLine = _pdfScaledSize(182, 100);
+    const chartScope = _pdfScaledSize(90, 68);
+
+    doc.addPage('a4', 'p');
+    _pdfDrawRunningHeader(doc, 4);
     doc.setFontSize(14);
     doc.setFont(undefined, 'bold');
-    doc.text('TOTAL EMISSIONS', 105, 24, { align: 'center' });
+    doc.setTextColor(..._PDF.GREEN_TEXT);
+    doc.text('TOTAL EMISSIONS', 105, 28, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
     doc.setFontSize(18);
-    doc.text(`${_formatKgReport(grandTotalKg)} KgCO2e`, 105, 36, { align: 'center' });
-    doc.setFontSize(12);
-    doc.text('Emissions by Category', 14, 52);
-    if (chartSnaps.pieChart) {
-        _pdfAddChartImage(doc, chartSnaps.pieChart, 14, 58, 182, 100);
-    } else {
-        _pdfDrawCategoryBars(doc, totals, 14, 62, 110);
-    }
-
-    doc.addPage();
+    doc.setTextColor(..._PDF.ORANGE);
+    doc.text(`${_formatKgReport(grandTotalKg)} KgCO2e`, 105, 42, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
     doc.setFontSize(12);
     doc.setFont(undefined, 'bold');
-    doc.text('Emissions by Scope', 14, 20);
+    doc.text('Emissions by Category', 105, 56, { align: 'center' });
+    doc.setFont(undefined, 'normal');
+    if (chartSnaps.pieChart) {
+        _pdfCenteredImage(doc, chartSnaps.pieChart, 62, pieSize, pieSize);
+    } else {
+        _pdfDrawCategoryBars(doc, totals, 24, 68, 90);
+    }
+
+    doc.addPage('a4', 'p');
+    _pdfDrawRunningHeader(doc, 5);
+    _pdfSectionHeading(doc, 'Emissions by Scope', 14, 24);
     doc.setFont(undefined, 'normal');
     doc.setFontSize(11);
-    doc.text(`Scope 1: ${_formatScopePctReport(scope1, totalScope)}`, 18, 30);
-    doc.text(`Scope 2: ${_formatScopePctReport(scope2, totalScope)}`, 18, 38);
-    doc.text(`Scope 3: ${_formatScopePctReport(scope3, totalScope)}`, 18, 46);
+    doc.setTextColor(40, 40, 40);
+    doc.text(`Scope 1: ${_formatScopePctReport(scope1, totalScope)}`, 18, 34);
+    doc.text(`Scope 2: ${_formatScopePctReport(scope2, totalScope)}`, 18, 42);
+    doc.text(`Scope 3: ${_formatScopePctReport(scope3, totalScope)}`, 18, 50);
     const scopeImg = chartSnaps.scopeChart || _buildScopeDoughnutImage(scope1, scope2, scope3);
     if (scopeImg) {
-        _pdfAddChartImage(doc, scopeImg, 14, 52, 90, 68);
+        _pdfCenteredImage(doc, scopeImg, 56, chartScope.w, chartScope.h);
     }
     doc.setFont(undefined, 'bold');
-    doc.text('Year-over-Year comparison', 14, 128);
+    doc.setTextColor(..._PDF.GREEN_TEXT);
+    doc.text('Year-over-Year comparison', 105, 118, { align: 'center' });
     doc.setFont(undefined, 'normal');
+    doc.setTextColor(0, 0, 0);
     if (chartSnaps.barChart) {
-        _pdfAddChartImage(doc, chartSnaps.barChart, 14, 134, 182, 88);
+        _pdfCenteredImage(doc, chartSnaps.barChart, 124, chartBar.w, chartBar.h);
     }
 
-    doc.addPage();
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
-    doc.text('Monthly Emissions Trend (Total)', 14, 20);
+    doc.addPage('a4', 'p');
+    _pdfDrawRunningHeader(doc, 6);
+    _pdfSectionHeading(doc, 'Monthly Emissions Trend (Total)', 105, 24, true);
     doc.setFont(undefined, 'normal');
     if (chartSnaps.lineChart) {
-        _pdfAddChartImage(doc, chartSnaps.lineChart, 14, 26, 182, 100);
+        _pdfCenteredImage(doc, chartSnaps.lineChart, 32, chartLine.w, chartLine.h);
     }
 
-    doc.addPage();
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
-    doc.text('Monthly Trend by Source (All)', 14, 20);
+    doc.addPage('a4', 'p');
+    _pdfDrawRunningHeader(doc, 7);
+    _pdfSectionHeading(doc, 'Monthly Trend by Source (All)', 105, 24, true);
     doc.setFont(undefined, 'normal');
     if (chartSnaps.sourceTrendChart) {
-        _pdfAddChartImage(doc, chartSnaps.sourceTrendChart, 14, 26, 182, 100);
+        _pdfCenteredImage(doc, chartSnaps.sourceTrendChart, 32, chartLine.w, chartLine.h);
     }
 
     const byCat = chartSnaps.sourceTrendByCategory || {};
+    let pageNum = 8;
     Object.keys(byCat).forEach((catKey) => {
-        doc.addPage();
+        doc.addPage('a4', 'p');
+        _pdfDrawRunningHeader(doc, pageNum);
+        pageNum += 1;
         doc.setFontSize(12);
         doc.setFont(undefined, 'bold');
-        doc.text(`Monthly Emissions Trend — ${_categoryLabel(catKey)}`, 14, 20);
+        doc.setTextColor(..._PDF.GREEN_TEXT);
+        doc.text(`Monthly Emissions Trend — ${_categoryLabel(catKey)}`, 105, 24, { align: 'center' });
         doc.setFont(undefined, 'normal');
-        _pdfAddChartImage(doc, byCat[catKey], 14, 26, 182, 100);
+        doc.setTextColor(0, 0, 0);
+        _pdfCenteredImage(doc, byCat[catKey], 32, chartLine.w, chartLine.h);
     });
 
     const fileName = `Carbon_Emission_Statement_${companyName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
