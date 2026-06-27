@@ -1184,6 +1184,11 @@ function cloneMonthArray(months) {
     });
 }
 
+/** Return the live canonical snapshot (category → Map<year, months[]>). Read-only reference. */
+function getCalendarMonthSnapshot() {
+    return calendarMonthSnapshot;
+}
+
 function syncCanonicalCalendarFromDom() {
     const prior = calendarMonthSnapshot;
     const snap = new Map();
@@ -1315,18 +1320,16 @@ function refreshCalendarSnapshotFromFinancialDom() {
                 catMap.set(y, cal);
             }
 
-            const nextCal = emptyMonthArray();
-            for (let m = 0; m < 3; m++) nextCal[m] = byCal[m];
-            const nextRow = rowsByYear.get(y + 1);
-            if (nextRow) {
-                const nextByCal = cloneMonthArray(readRowMonthsFromDom(nextRow));
-                for (let m = 3; m < 12; m++) nextCal[m] = nextByCal[m];
-            } else if (priorCat?.has(y + 1)) {
-                const oldNext = priorCat.get(y + 1);
-                for (let m = 3; m < 12; m++) nextCal[m] = oldNext[m];
-            }
-            if (!isFinancialYearAutoAddedRow(category, y + 1) && nextCal.some((v) => Number(v) > 0)) {
-                catMap.set(y + 1, nextCal);
+            // Capture Jan-Mar of calendar year y+1 from this FY row's last three display slots.
+            // These months belong to calendar year y+1. If a DOM row for y+1 already exists it
+            // will overwrite this entry when the loop reaches that year, so there is no conflict.
+            if (!isFinancialYearAutoAddedRow(category, y + 1)) {
+                const nextCalData = catMap.get(y + 1) || emptyMonthArray();
+                // byCal[0..2] = Jan-Mar of y+1 (readRowMonthsFromDom already maps via data-month)
+                nextCalData[0] = byCal[0];
+                nextCalData[1] = byCal[1];
+                nextCalData[2] = byCal[2];
+                catMap.set(y + 1, nextCalData);
             }
         });
         priorCat?.forEach((months, y) => {
@@ -2482,6 +2485,7 @@ window.carbonCalc = {
     syncCanonicalCalendarBeforeSave,
     syncCanonicalCalendarFromDom,
     getCanonicalCalendarMonths,
+    getCalendarMonthSnapshot,
     isFinancialYearAutoAddedRow,
     refreshCalendarSnapshotFromFinancialDom,
     refreshFinancialYearMonthHighlights,

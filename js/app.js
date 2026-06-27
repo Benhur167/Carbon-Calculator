@@ -293,6 +293,34 @@ function collectCategoryRowsForSite(site, category) {
         if (rowData) nextRows.push(rowData);
     });
 
+    // In financial-year mode the Jan–Mar slots of DOM row Y contain data for calendar year Y+1.
+    // refreshCalendarSnapshotFromFinancialDom writes those months into the snapshot under Y+1,
+    // but collectCategoryRowsForSite only iterates DOM rows — so Y+1 data would be lost if
+    // there is no dedicated DOM row for Y+1. Scan the snapshot and emit a saved row for any
+    // calendar year that has meaningful data but is absent from the DOM rows we already collected.
+    if (window.carbonCalc?.getCalendarMonthSnapshot) {
+        const snap = window.carbonCalc.getCalendarMonthSnapshot();
+        const catSnap = snap?.get(category);
+        if (catSnap) {
+            const domYears = new Set(nextRows.map((r) => r.year));
+            catSnap.forEach((months, y) => {
+                if (domYears.has(y)) return; // already present from DOM
+                if (window.carbonCalc?.isFinancialYearAutoAddedRow?.(category, y)) return;
+                const cloned = Array.isArray(months) ? [...months] : [];
+                if (!cloned.some((v) => Number(v) > 0)) return; // skip all-zero years
+                // Inherit emissionType/unit from an existing DOM row for this category
+                const refRow = nextRows[0];
+                nextRows.push({
+                    description: '',
+                    year: y,
+                    months: cloned,
+                    emissionType: refRow?.emissionType ?? null,
+                    unit: refRow?.unit || getPreferredUnitForCategory(category, null),
+                });
+            });
+        }
+    }
+
     if (categoryRowsHaveMonthData(nextRows)) {
         return nextRows;
     }
@@ -2865,10 +2893,20 @@ function loadSiteData(siteId) {
                 addDataRow(category);
             } else {
                 savedRows.forEach(rowData => {
+                    // Skip rows that carry no meaningful data (all months zero, no description).
+                    // These can appear when a year had data in one reporting-period mode but not
+                    // the other (e.g. a calendar-year row with only Jan-Mar that maps to zero
+                    // in financial-year view). Rendering them would show confusing empty rows.
+                    const hasData =
+                        (Array.isArray(rowData.months) && rowData.months.some((v) => Number(v) > 0)) ||
+                        String(rowData.description || '').trim().length > 0;
+                    if (!hasData) return;
                     addDataRow(category);
                     const row = tbody.lastElementChild;
                     loadRowData(row, rowData);
                 });
+                // If every saved row was empty, fall back to a single blank row
+                if (tbody.children.length === 0) addDataRow(category);
             }
         }
     });
