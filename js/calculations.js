@@ -1392,6 +1392,9 @@ function syncFinancialYearViewAfterDataLoad() {
     }
     ensurePriorFinancialYearRows(calendarMonthSnapshot);
     applyFinancialYearMonthShift();
+    if (typeof window.removeEmptyRowsFromDom === 'function') {
+        window.removeEmptyRowsFromDom();
+    }
     refreshFinancialYearMonthHighlights();
 }
 
@@ -1644,6 +1647,9 @@ function setReportingPeriodType(type) {
     if (nextType === 'financial_uk') {
         ensurePriorFinancialYearRows(calendarMonthSnapshot);
         applyFinancialYearMonthShift();
+        if (typeof window.removeEmptyRowsFromDom === 'function') {
+            window.removeEmptyRowsFromDom();
+        }
     }
     writeOrgPref('reportingPeriodType', currentReportingPeriodType);
     if (typeof window.setOrgLocalItem === 'function') {

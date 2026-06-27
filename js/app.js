@@ -2957,6 +2957,9 @@ function loadSiteData(siteId) {
     normalizeDataRowYearInputs();
     if (window.carbonCalc?.syncFinancialYearViewAfterDataLoad) {
         window.carbonCalc.syncFinancialYearViewAfterDataLoad();
+        if (window.carbonCalc?.getReportingPeriodType?.() === 'financial_uk' && typeof window.removeEmptyRowsFromDom === 'function') {
+            window.removeEmptyRowsFromDom();
+        }
     } else if (window.carbonCalc?.refreshFinancialYearMonthHighlights) {
         window.carbonCalc.refreshFinancialYearMonthHighlights();
     }
@@ -2976,6 +2979,27 @@ function loadSiteData(siteId) {
         }
     }, 200);
 }
+
+window.removeEmptyRowsFromDom = function() {
+    getDataInputCategoryList().forEach(category => {
+        const table = document.getElementById(`${category}Table`);
+        if (!table) return;
+        const rows = table.querySelectorAll('.data-row');
+        const rowsArray = Array.from(rows);
+        if (rowsArray.length <= 1) return; // Keep at least one row
+        
+        let removedCount = 0;
+        rowsArray.forEach(row => {
+            if (rowsArray.length - removedCount <= 1) return;
+            const hasData = Array.from(row.querySelectorAll('.month-input')).some(input => Number(input.value) > 0);
+            const hasDesc = String(row.querySelector('input[type="text"]')?.value || '').trim().length > 0;
+            if (!hasData && !hasDesc) {
+                row.remove();
+                removedCount++;
+            }
+        });
+    });
+};
 
 function migrateWasteEmissionType(emissionType) {
     if (window.carbonCalc?.getCanonicalEmissionOptionKey) {
