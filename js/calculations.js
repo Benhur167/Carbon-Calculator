@@ -1104,9 +1104,36 @@ function loadCanonicalCalendarFromSiteData(site) {
             rows.forEach((row) => {
                 const y = parseInt(row.year, 10);
                 if (!Number.isFinite(y)) return;
-                catMap.set(y, cloneMonthArray(row.months || []));
+                const months = cloneMonthArray(row.months || []);
+                const hasAnyData = months.some((v) => Number(v) > 0);
+                const hasDescription = String(row.description || '').trim().length > 0;
+                if (!hasAnyData && !hasDescription) return; // skip fully empty rows
+                catMap.set(y, months);
             });
         }
+
+        // Scrub ghost rows: years that only have Jan-Mar data (Apr-Dec all zero) AND have no
+        // description AND there exists a later year that has full data (Apr-Dec). These ghost
+        // rows were produced by incorrect FY snapshotting in prior sessions and corrupt the
+        // ensurePriorFinancialYearRows logic by causing it to add placeholder rows too far
+        // back in time.
+        const maxFullYear = (() => {
+            let max = -Infinity;
+            catMap.forEach((months, y) => {
+                const hasDataAfterMarch = months.slice(3).some((v) => Number(v) > 0);
+                if (hasDataAfterMarch && y > max) max = y;
+            });
+            return max;
+        })();
+        catMap.forEach((months, y) => {
+            if (y >= maxFullYear) return; // keep real data and the year with full data
+            const hasDataAfterMarch = months.slice(3).some((v) => Number(v) > 0);
+            if (!hasDataAfterMarch) {
+                // This year only has Jan-Mar data and is older than a full-data year — it's a ghost
+                catMap.delete(y);
+            }
+        });
+
         snap.set(category, catMap);
     });
     calendarMonthSnapshot = snap;

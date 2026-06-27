@@ -303,18 +303,22 @@ function collectCategoryRowsForSite(site, category) {
         const catSnap = snap?.get(category);
         if (catSnap) {
             const domYears = new Set(nextRows.map((r) => r.year));
-            const maxDomYear = domYears.size > 0 ? Math.max(...Array.from(domYears)) : -Infinity;
             catSnap.forEach((months, y) => {
                 if (domYears.has(y)) return; // already present from DOM
                 if (window.carbonCalc?.isFinancialYearAutoAddedRow?.(category, y)) return;
                 const cloned = Array.isArray(months) ? [...months] : [];
-                
+
                 const hasAnyData = cloned.some((v) => Number(v) > 0);
                 if (!hasAnyData) return; // skip all-zero years
-                
-                // Skip 'ghost' rows that only carry shifted Jan-Mar data for prior years
+
+                // Never save a snapshot year that only has Jan-Mar data as a standalone row.
+                // In FY view, Jan-Mar slots on row Y represent calendar year Y+1 and are
+                // captured in the snapshot under Y+1. But if Y+1 has no Apr-Dec data it
+                // means this is purely an FY display artefact — not real user-entered data.
+                // If the user genuinely entered only Jan-Mar for a year, that row would
+                // already be in the DOM and caught by the domYears loop above.
                 const hasDataAfterMarch = cloned.slice(3).some((v) => Number(v) > 0);
-                if (!hasDataAfterMarch && y <= maxDomYear) return;
+                if (!hasDataAfterMarch) return;
 
                 // Inherit emissionType/unit from an existing DOM row for this category
                 const refRow = nextRows[0];
