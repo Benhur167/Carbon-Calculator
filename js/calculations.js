@@ -1420,6 +1420,52 @@ function applyFinancialYearMonthShift() {
     });
 }
 
+function calendarYearNeedsRowInSnapshot(catMap, y, rowsByYear) {
+    const months = catMap.get(y);
+    if (!months || !months.some((v) => Number(v) > 0)) return false;
+    const hasAprDec = months.slice(3).some((v) => Number(v) > 0);
+    if (hasAprDec) return true;
+    // Jan–Mar only: FY tail months stored under calendar y (entered on FY row y − 1).
+    if (rowsByYear.has(y - 1)) return true;
+    const priorMonths = catMap.get(y - 1);
+    return Array.isArray(priorMonths) && priorMonths.some((v) => Number(v) > 0);
+}
+
+/** Add DOM rows for calendar years present in the snapshot but missing from the table. */
+function ensureCalendarYearRowsFromSnapshot(snap) {
+    if (typeof window.addDataRow !== 'function') return;
+
+    getDataInputCategories().forEach((category) => {
+        const table = document.getElementById(`${category}Table`);
+        if (!table) return;
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+
+        const catMap = snap.get(category) || new Map();
+        const rowsByYear = getRowsByYearForTable(table);
+        const templateRow = table.querySelector('.data-row');
+
+        const yearsToAdd = Array.from(catMap.keys())
+            .filter((y) => !rowsByYear.has(y))
+            .filter((y) => calendarYearNeedsRowInSnapshot(catMap, y, rowsByYear))
+            .sort((a, b) => a - b);
+
+        yearsToAdd.forEach((y) => {
+            window.addDataRow(category);
+            const row = tbody.lastElementChild;
+            if (!row) return;
+            const yearInput = row.querySelector('.row-display-year');
+            if (yearInput) yearInput.value = y;
+            if (templateRow) {
+                const srcEm = templateRow.querySelector('.emission-select');
+                const dstEm = row.querySelector('.emission-select');
+                if (srcEm?.value && dstEm) dstEm.value = srcEm.value;
+            }
+            rowsByYear.set(y, row);
+        });
+    });
+}
+
 function restoreCalendarMonthViewFromSnapshot() {
     refreshCalendarSnapshotFromFinancialDom();
     removeFinancialYearAutoAddedRows();
@@ -1427,13 +1473,15 @@ function restoreCalendarMonthViewFromSnapshot() {
     const snap = calendarMonthSnapshot;
     if (!snap) return;
 
+    ensureCalendarYearRowsFromSnapshot(snap);
+
     getDataInputCategories().forEach((category) => {
         const table = document.getElementById(`${category}Table`);
         if (!table) return;
         const catMap = snap.get(category) || new Map();
         table.querySelectorAll('.data-row').forEach((row) => {
             const y = getRowYear(row);
-            if (y == null || isFinancialYearAutoAddedRow(category, y)) return;
+            if (y == null) return;
             setRowMonthsFromCalendarMonth(row, catMap.get(y) || emptyMonthArray());
         });
     });
@@ -1701,7 +1749,9 @@ function setReportingPeriodType(type) {
 
     currentReportingPeriodType = nextType;
 
-    if (nextType === 'financial_uk') {
+    if (nextType === 'calendar') {
+        syncAllRowMonthDataAttributes();
+    } else if (nextType === 'financial_uk') {
         ensurePriorFinancialYearRows(calendarMonthSnapshot);
         applyFinancialYearMonthShift();
         if (typeof window.removeEmptyRowsFromDom === 'function') {
