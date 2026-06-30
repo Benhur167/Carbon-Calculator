@@ -344,10 +344,6 @@ function collectCategoryRowsForSite(site, category) {
         }
     }
 
-    const domRowCount = table.querySelectorAll('.data-row').length;
-    if (domRowCount === 0 && categoryRowsHaveMonthData(previousRows)) {
-        return previousRows;
-    }
     return nextRows;
 }
 
@@ -2920,11 +2916,9 @@ function loadSiteData(siteId) {
             const tbody = table.querySelector('tbody');
             tbody.innerHTML = '';
             
-            // Load saved rows or add one default row
+            // Load only saved meaningful rows; keep category empty if the user deleted everything.
             const savedRows = site.data[category] || [];
-            if (savedRows.length === 0) {
-                addDataRow(category);
-            } else {
+            if (savedRows.length > 0) {
                 let maxFullYear = -Infinity;
                 savedRows.forEach((rowData) => {
                     const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
@@ -2948,8 +2942,6 @@ function loadSiteData(siteId) {
                     const row = tbody.lastElementChild;
                     loadRowData(row, rowData);
                 });
-                // If every saved row was empty, fall back to a single blank row
-                if (tbody.children.length === 0) addDataRow(category);
             }
         }
     });
