@@ -2792,18 +2792,7 @@ function attachRowListeners(row) {
     bindRowUnitSelect(row, unitSelect);
     
     if (yearInput) {
-        let lastKnownYear = parseInt(yearInput.value, 10);
         const onYearChange = () => {
-            const newYear = parseInt(yearInput.value, 10);
-            if (
-                Number.isFinite(newYear) &&
-                Number.isFinite(lastKnownYear) &&
-                newYear !== lastKnownYear &&
-                window.carbonCalc?.syncCanonicalCalendarBeforeSave
-            ) {
-                window.carbonCalc.syncCanonicalCalendarBeforeSave();
-            }
-            lastKnownYear = newYear;
             saveData();
             window.carbonCalc?.refreshFinancialYearMonthHighlights?.();
             if (window.updateDashboard) {
@@ -2916,33 +2905,29 @@ function loadSiteData(siteId) {
             const tbody = table.querySelector('tbody');
             tbody.innerHTML = '';
             
-            // Load only meaningful saved rows. Empty rows stay hidden until the user adds one.
             const savedRows = site.data[category] || [];
-            if (savedRows.length > 0) {
-                let maxFullYear = -Infinity;
-                savedRows.forEach((rowData) => {
-                    const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
-                    if (hasDataAfterMarch && rowData.year > maxFullYear) {
-                        maxFullYear = rowData.year;
-                    }
-                });
+            let maxFullYear = -Infinity;
+            savedRows.forEach((rowData) => {
+                const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
+                if (hasDataAfterMarch && rowData.year > maxFullYear) {
+                    maxFullYear = rowData.year;
+                }
+            });
 
-                savedRows.forEach((rowData) => {
-                    const hasAnyData = Array.isArray(rowData.months) && rowData.months.some((v) => Number(v) > 0);
-                    const hasDescription = String(rowData.description || '').trim().length > 0;
-                    if (!hasAnyData && !hasDescription) return; // Completely empty
+            savedRows.forEach((rowData) => {
+                const hasAnyData = Array.isArray(rowData.months) && rowData.months.some((v) => Number(v) > 0);
+                const hasDescription = String(rowData.description || '').trim().length > 0;
+                if (!hasAnyData && !hasDescription) return;
 
-                    // Skip "ghost" rows: older years with no description and only Jan-Mar data
-                    const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
-                    if (!hasDataAfterMarch && !hasDescription && rowData.year <= maxFullYear) {
-                        return;
-                    }
+                const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
+                if (!hasDataAfterMarch && !hasDescription && rowData.year <= maxFullYear) {
+                    return;
+                }
 
-                    addDataRow(category);
-                    const row = tbody.lastElementChild;
-                    loadRowData(row, rowData);
-                });
-            }
+                addDataRow(category);
+                const row = tbody.lastElementChild;
+                loadRowData(row, rowData);
+            });
         }
     });
     
@@ -2980,6 +2965,7 @@ function loadSiteData(siteId) {
     } else if (window.carbonCalc?.refreshFinancialYearMonthHighlights) {
         window.carbonCalc.refreshFinancialYearMonthHighlights();
     }
+    
     // Recalculate totals after loading
     setTimeout(() => {
         calculateAllTotals();
