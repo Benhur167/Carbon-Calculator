@@ -204,11 +204,13 @@ function mergeSiteTabQuestions(targetSite, localSite) {
 
 function mergeSitesPreferNonEmptyLocal(serverSites, localSites) {
     if (!localSites || typeof localSites !== 'object') return serverSites;
-    const merged = { ...(localSites || {}) };
-    Object.keys(serverSites || {}).forEach((siteId) => {
+    const merged = { ...(serverSites || {}) };
+    Object.keys(localSites).forEach((siteId) => {
         if (!merged[siteId]) {
-            merged[siteId] = serverSites[siteId];
+            merged[siteId] = localSites[siteId];
+            return;
         }
+        merged[siteId] = mergeSiteDataInputCategories(merged[siteId], localSites[siteId]);
     });
     return merged;
 }
@@ -342,6 +344,12 @@ function collectCategoryRowsForSite(site, category) {
         }
     }
 
+    if (categoryRowsHaveMonthData(nextRows)) {
+        return nextRows;
+    }
+    if (categoryRowsHaveMonthData(previousRows)) {
+        return previousRows;
+    }
     return nextRows;
 }
 
@@ -1687,9 +1695,6 @@ async function loadUserDataFromBackend() {
                     ? mergeSitesPreferNonEmptyLocal(serverSites, localSites)
                     : serverSites;
                 normalizeAllSitesDataShape();
-                if (localSites && Object.keys(localSites).length > 0) {
-                    scheduleSiteDataSave();
-                }
             } else {
                 let migratedFromLocal = false;
                 if (localSites && Object.keys(localSites).length > 0) {
@@ -2722,7 +2727,6 @@ async function deleteRow(button) {
         ? 'Delete this row?' 
         : 'Excluir esta linha?')) {
         button.closest('tr').remove();
-        syncCanonicalBeforeSiteSave();
         calculateAllTotals();
         saveCurrentSiteData();
     }
@@ -2906,29 +2910,37 @@ function loadSiteData(siteId) {
             const tbody = table.querySelector('tbody');
             tbody.innerHTML = '';
             
+            // Load saved rows or add one default row
             const savedRows = site.data[category] || [];
-            let maxFullYear = -Infinity;
-            savedRows.forEach((rowData) => {
-                const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
-                if (hasDataAfterMarch && rowData.year > maxFullYear) {
-                    maxFullYear = rowData.year;
-                }
-            });
-
-            savedRows.forEach((rowData) => {
-                const hasAnyData = Array.isArray(rowData.months) && rowData.months.some((v) => Number(v) > 0);
-                const hasDescription = String(rowData.description || '').trim().length > 0;
-                if (!hasAnyData && !hasDescription) return;
-
-                const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
-                if (!hasDataAfterMarch && !hasDescription && rowData.year <= maxFullYear) {
-                    return;
-                }
-
+            if (savedRows.length === 0) {
                 addDataRow(category);
-                const row = tbody.lastElementChild;
-                loadRowData(row, rowData);
-            });
+            } else {
+                let maxFullYear = -Infinity;
+                savedRows.forEach((rowData) => {
+                    const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
+                    if (hasDataAfterMarch && rowData.year > maxFullYear) {
+                        maxFullYear = rowData.year;
+                    }
+                });
+
+                savedRows.forEach((rowData) => {
+                    const hasAnyData = Array.isArray(rowData.months) && rowData.months.some((v) => Number(v) > 0);
+                    const hasDescription = String(rowData.description || '').trim().length > 0;
+                    if (!hasAnyData && !hasDescription) return; // Completely empty
+
+                    // Skip "ghost" rows: older years with no description and only Jan-Mar data
+                    const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
+                    if (!hasDataAfterMarch && !hasDescription && rowData.year <= maxFullYear) {
+                        return;
+                    }
+
+                    addDataRow(category);
+                    const row = tbody.lastElementChild;
+                    loadRowData(row, rowData);
+                });
+                // If every saved row was empty, fall back to a single blank row
+                if (tbody.children.length === 0) addDataRow(category);
+            }
         }
     });
     

@@ -1367,6 +1367,11 @@ function refreshCalendarSnapshotFromFinancialDom() {
                 cal[0] = prevByCal[0];
                 cal[1] = prevByCal[1];
                 cal[2] = prevByCal[2];
+            } else if (priorCat?.has(y)) {
+                const old = priorCat.get(y);
+                cal[0] = old[0];
+                cal[1] = old[1];
+                cal[2] = old[2];
             }
             const hasAprDecData = byCal.slice(3).some((v) => Number(v) > 0);
             if (!isFinancialYearAutoAddedRow(category, y) || hasAprDecData) {
@@ -1383,6 +1388,11 @@ function refreshCalendarSnapshotFromFinancialDom() {
                 nextCalData[1] = byCal[1];
                 nextCalData[2] = byCal[2];
                 catMap.set(y + 1, nextCalData);
+            }
+        });
+        priorCat?.forEach((months, y) => {
+            if (!catMap.has(y) && !isFinancialYearAutoAddedRow(category, y)) {
+                catMap.set(y, cloneMonthArray(months));
             }
         });
         stripDuplicateFinancialYearJanMar(catMap);
