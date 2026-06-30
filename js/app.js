@@ -2980,6 +2980,7 @@ function loadSiteData(siteId) {
     } else if (window.carbonCalc?.refreshFinancialYearMonthHighlights) {
         window.carbonCalc.refreshFinancialYearMonthHighlights();
     }
+    purgeBlankRowsFromDom({ keepOnePerCategory: false });
     
     // Recalculate totals after loading
     setTimeout(() => {
@@ -3017,6 +3018,24 @@ window.removeEmptyRowsFromDom = function() {
         });
     });
 };
+
+function purgeBlankRowsFromDom(options) {
+    const keepOnePerCategory = options?.keepOnePerCategory === true;
+    getDataInputCategoryList().forEach((category) => {
+        const table = document.getElementById(`${category}Table`);
+        if (!table) return;
+        const rows = Array.from(table.querySelectorAll('.data-row'));
+        let remaining = rows.length;
+        rows.forEach((row) => {
+            const hasData = Array.from(row.querySelectorAll('.month-input')).some((input) => Number(input.value) > 0);
+            const hasDesc = String(row.querySelector('input[type="text"]')?.value || '').trim().length > 0;
+            if (hasData || hasDesc) return;
+            if (keepOnePerCategory && remaining <= 1) return;
+            row.remove();
+            remaining--;
+        });
+    });
+}
 
 function migrateWasteEmissionType(emissionType) {
     if (window.carbonCalc?.getCanonicalEmissionOptionKey) {
