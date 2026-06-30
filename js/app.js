@@ -157,7 +157,7 @@ function mergeSiteDataInputCategories(targetSite, localSite) {
     getDataInputCategoryList().forEach((category) => {
         const serverRows = targetSite.data?.[category];
         const localRows = localSite.data?.[category];
-        if (Array.isArray(localRows)) {
+        if (categoryRowsHaveMonthData(localRows) && !categoryRowsHaveMonthData(serverRows)) {
             targetSite.data[category] = cloneDataInputRows(localRows);
         }
     });
@@ -2916,11 +2916,9 @@ function loadSiteData(siteId) {
             const tbody = table.querySelector('tbody');
             tbody.innerHTML = '';
             
-            // Load saved rows or add one default row
+            // Load only meaningful saved rows. Empty rows stay hidden until the user adds one.
             const savedRows = site.data[category] || [];
-            if (savedRows.length === 0) {
-                addDataRow(category);
-            } else {
+            if (savedRows.length > 0) {
                 let maxFullYear = -Infinity;
                 savedRows.forEach((rowData) => {
                     const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
@@ -2944,8 +2942,6 @@ function loadSiteData(siteId) {
                     const row = tbody.lastElementChild;
                     loadRowData(row, rowData);
                 });
-                // If every saved row was empty, fall back to a single blank row
-                if (tbody.children.length === 0) addDataRow(category);
             }
         }
     });
