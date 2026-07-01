@@ -1385,16 +1385,7 @@ function normalizeReportingYear(rawYear) {
     return BASE_YEAR;
 }
 
-/** Conversion-factor year for a data row (uses the row year, not the toolbar reporting year). */
-function getRowFactorLookupYear(row) {
-    const rowYear = getRowYear(row);
-    if (rowYear != null) {
-        return normalizeReportingYear(rowYear);
-    }
-    return getReportingYear();
-}
-
-/** Calendar/financial year used for conversion-factor UI defaults (toolbar reporting year). */
+/** Conversion factors always use the toolbar reporting year (same for every row). */
 function getFactorLookupYear() {
     return getReportingYear();
 }
@@ -1735,7 +1726,7 @@ function getFactorsBucketForYear(year, country) {
 }
 
 function getRowConversionFactor(row, tableId) {
-    const factorYear = getRowFactorLookupYear(row);
+    const factorYear = getFactorLookupYear();
     const bucket = resolveUiFactorBucket(factorYear);
     const defaults =
         (DEFAULT_CONVERSION_FACTORS[currentCountry] || DEFAULT_CONVERSION_FACTORS['UK'])[String(factorYear)] ||
@@ -1886,8 +1877,9 @@ function updateCategorySummaryPeriodHint(categoryName) {
     const meta = window.DATA_TAB_META?.[categoryName];
     const baseEn = meta?.summaryEn || `Total ${categoryName} emissions`;
     const basePt = meta?.summaryPt || baseEn;
-    const en = `${baseEn} (all years)`;
-    const pt = `${basePt} (todos os anos)`;
+    const y = getReportingYear();
+    const en = `${baseEn} (all years, ${y} factors)`;
+    const pt = `${basePt} (todos os anos, fatores ${y})`;
     summarySpan.textContent = window.appState?.currentLanguage === 'pt' ? pt : en;
     summarySpan.setAttribute('data-en', en);
     summarySpan.setAttribute('data-pt', pt);
