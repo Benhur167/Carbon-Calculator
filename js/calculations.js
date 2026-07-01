@@ -972,7 +972,7 @@ let currentReportingPeriodType = readOrgPref('reportingPeriodType', 'calendar') 
 
 const CALENDAR_MONTH_LABELS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const CALENDAR_MONTH_LABELS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-/** FY column header labels only (slot 0 = Apr … slot 11 = Mar). Data slots are always 0–11. */
+/** FY column order in the table: slot → calendar month index (Jan=0 … Dec=11). */
 const FY_MONTH_LABEL_INDICES = [3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2];
 
 function getRowsByYearForTable(table) {
@@ -1038,12 +1038,14 @@ function isMonthHighlightedForFinancialYear(row, monthIndex) {
     return getRowYear(row) === getReportingYear();
 }
 
-/** Read month values from DOM (slot 0 … slot 11 = stored months array). */
+/** Read months from DOM into calendar indices (Jan=0 … Dec=11) for DB storage. */
 function readRowMonthsFromDom(row) {
-    const out = Array(12).fill(0);
+    const out = emptyMonthArray();
+    const isFy = getReportingPeriodType() === 'financial_uk';
     row.querySelectorAll('.month-input').forEach((input, slot) => {
         if (slot > 11) return;
-        out[slot] = parseFloat(input.value) || 0;
+        const calIdx = isFy ? FY_MONTH_LABEL_INDICES[slot] : slot;
+        out[calIdx] = parseFloat(input.value) || 0;
     });
     return out;
 }
@@ -1116,8 +1118,8 @@ function rowDataIsMeaningful(row) {
 }
 
 /**
- * Calendar rows (Jan–Dec per calendar year) → financial rows (Apr–Mar per FY start year).
- * Each source row is converted independently; rows with the same identity merge into one FY row.
+ * Calendar rows (Jan–Dec per calendar year) → split financial rows stored with calendar indices.
+ * CY 2022 → FY row 2021 (Jan–Mar, indices 0–2) + FY row 2022 (Apr–Dec, indices 3–11).
  */
 function convertCategoryRowsCalendarToFinancial(calendarRows) {
     const fyByKey = new Map();
@@ -1135,25 +1137,25 @@ function convertCategoryRowsCalendarToFinancial(calendarRows) {
 
         if (months[0] || months[1] || months[2]) {
             const fyYear = calYear - 1;
-            const key = `${identity}|${fyYear}`;
+            const key = `${identity}|${fyYear}|tail`;
             let fyRow = fyByKey.get(key);
             if (!fyRow) {
                 fyRow = { ...meta, year: fyYear, months: emptyMonthArray() };
                 fyByKey.set(key, fyRow);
             }
-            fyRow.months[9] = months[0];
-            fyRow.months[10] = months[1];
-            fyRow.months[11] = months[2];
+            fyRow.months[0] = months[0];
+            fyRow.months[1] = months[1];
+            fyRow.months[2] = months[2];
         }
 
         if (months.slice(3).some((v) => Number(v) > 0)) {
-            const key = `${identity}|${calYear}`;
+            const key = `${identity}|${calYear}|head`;
             let fyRow = fyByKey.get(key);
             if (!fyRow) {
                 fyRow = { ...meta, year: calYear, months: emptyMonthArray() };
                 fyByKey.set(key, fyRow);
             }
-            for (let m = 3; m < 12; m++) fyRow.months[m - 3] = months[m];
+            for (let m = 3; m < 12; m++) fyRow.months[m] = months[m];
         }
     });
 
@@ -1163,14 +1165,15 @@ function convertCategoryRowsCalendarToFinancial(calendarRows) {
 }
 
 /**
- * Financial rows (Apr–Mar per FY start year) → calendar rows (Jan–Dec per calendar year).
+ * Split financial rows (calendar indices) → calendar rows (Jan–Dec per calendar year).
+ * FY row 2021 (Jan–Mar) + FY row 2022 (Apr–Dec) → CY 2022.
  */
 function convertCategoryRowsFinancialToCalendar(fyRows) {
     const calByKey = new Map();
 
     (Array.isArray(fyRows) ? fyRows : []).forEach((row) => {
-        const fyStart = Number(row.year);
-        if (!Number.isFinite(fyStart)) return;
+        const fyYear = Number(row.year);
+        if (!Number.isFinite(fyYear)) return;
         const months = cloneMonthArray(row.months);
         const identity = dataInputRowIdentity(row);
         const meta = {
@@ -1179,27 +1182,27 @@ function convertCategoryRowsFinancialToCalendar(fyRows) {
             unit: row.unit || '',
         };
 
-        if (months.slice(0, 9).some((v) => Number(v) > 0)) {
-            const key = `${identity}|${fyStart}`;
-            let calRow = calByKey.get(key);
-            if (!calRow) {
-                calRow = { ...meta, year: fyStart, months: emptyMonthArray() };
-                calByKey.set(key, calRow);
-            }
-            for (let m = 0; m < 9; m++) calRow.months[m + 3] = months[m];
-        }
-
-        if (months[9] || months[10] || months[11]) {
-            const calYear = fyStart + 1;
+        if (months[0] || months[1] || months[2]) {
+            const calYear = fyYear + 1;
             const key = `${identity}|${calYear}`;
             let calRow = calByKey.get(key);
             if (!calRow) {
                 calRow = { ...meta, year: calYear, months: emptyMonthArray() };
                 calByKey.set(key, calRow);
             }
-            calRow.months[0] = months[9];
-            calRow.months[1] = months[10];
-            calRow.months[2] = months[11];
+            calRow.months[0] = months[0];
+            calRow.months[1] = months[1];
+            calRow.months[2] = months[2];
+        }
+
+        if (months.slice(3).some((v) => Number(v) > 0)) {
+            const key = `${identity}|${fyYear}`;
+            let calRow = calByKey.get(key);
+            if (!calRow) {
+                calRow = { ...meta, year: fyYear, months: emptyMonthArray() };
+                calByKey.set(key, calRow);
+            }
+            for (let m = 3; m < 12; m++) calRow.months[m] = months[m];
         }
     });
 
@@ -1260,10 +1263,12 @@ function migrateAllSitesToReportingPeriod(sites, reportingPeriodType) {
 
 function setRowMonthsOnDom(row, months) {
     const source = Array.isArray(months) ? months : [];
+    const isFy = getReportingPeriodType() === 'financial_uk';
     row.querySelectorAll('.month-input').forEach((input, slot) => {
         if (slot > 11) return;
-        input.dataset.month = String(slot);
-        const val = source[slot];
+        const calIdx = isFy ? FY_MONTH_LABEL_INDICES[slot] : slot;
+        input.dataset.month = String(calIdx);
+        const val = source[calIdx];
         input.value = val != null && val !== '' && Number(val) !== 0 ? val : '';
     });
 }
@@ -1273,13 +1278,15 @@ function setRowMonthsFromCalendarMonth(row, months) {
 }
 
 function syncAllRowMonthDataAttributes() {
+    const isFy = getReportingPeriodType() === 'financial_uk';
     getDataInputCategories().forEach((category) => {
         const table = document.getElementById(`${category}Table`);
         if (!table) return;
         table.querySelectorAll('.data-row').forEach((row) => {
             row.querySelectorAll('.month-input').forEach((input, slot) => {
                 if (slot > 11) return;
-                input.dataset.month = String(slot);
+                const calIdx = isFy ? FY_MONTH_LABEL_INDICES[slot] : slot;
+                input.dataset.month = String(calIdx);
             });
         });
     });
@@ -1554,10 +1561,14 @@ function setReportingPeriodType(type) {
         if (typeof window.saveCurrentSiteData === 'function') {
             window.saveCurrentSiteData();
         }
+        const fromFormat = getStoredDataRowFormat() === nextType ? prevType : getStoredDataRowFormat();
         if (window.appState?.sites) {
-            convertAllSitesPeriodFormat(window.appState.sites, prevType, nextType);
+            convertAllSitesPeriodFormat(window.appState.sites, fromFormat, nextType);
         }
         setStoredDataRowFormat(nextType);
+        if (typeof window.saveSitesToLocalStorage === 'function') {
+            window.saveSitesToLocalStorage();
+        }
     }
 
     currentReportingPeriodType = nextType;
