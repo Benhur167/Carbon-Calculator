@@ -155,9 +155,9 @@ function mergeSiteDataInputCategories(targetSite, localSite) {
         window.ensureDefaultSiteData(localSite);
     }
     getDataInputCategoryList().forEach((category) => {
-        const serverRows = targetSite.data?.[category];
         const localRows = localSite.data?.[category];
-        if (categoryRowsHaveMonthData(localRows) && !categoryRowsHaveMonthData(serverRows)) {
+        // Prefer browser cache when it has real month values (survives refresh before Mongo sync).
+        if (categoryRowsHaveMonthData(localRows)) {
             targetSite.data[category] = cloneDataInputRows(localRows);
         }
     });
@@ -470,6 +470,7 @@ const appState = {
     darkMode: false,
     loggedIn: false,
     dataHydrated: false,
+    loadingSiteData: false,
     activeDataTab: 'water',
     currentSite: 'site-1',
     sites: {
@@ -2666,16 +2667,7 @@ async function deleteRow(button) {
     if (await showAppConfirm(appState.currentLanguage === 'en' 
         ? 'Delete this row?' 
         : 'Excluir esta linha?')) {
-        const row = button.closest('tr');
-        const table = row?.closest('table');
-        row?.remove();
-
-        const tbody = table?.querySelector('tbody');
-        if (tbody && tbody.children.length === 0) {
-            const category = table.id?.replace(/Table$/, '');
-            if (category) addDataRow(category);
-        }
-
+        button.closest('tr')?.remove();
         calculateAllTotals();
         saveCurrentSiteData();
         if (typeof flushSiteDataSave === 'function') {
@@ -2836,7 +2828,16 @@ function loadSitesFromLocalStorage(options) {
 function loadSiteData(siteId) {
     const site = appState.sites[siteId];
     if (!site) return;
-    
+
+    appState.loadingSiteData = true;
+    try {
+        loadSiteDataIntoDom(site, siteId);
+    } finally {
+        appState.loadingSiteData = false;
+    }
+}
+
+function loadSiteDataIntoDom(site, siteId) {
     // Load site-specific company name if exists, otherwise use global
     const siteCompanyName = site.companyName || getOrgLocalItem('companyName', localStorage.getItem('companyName') || 'My Company');
     document.getElementById('companyNameInput').value = siteCompanyName;
@@ -2859,22 +2860,17 @@ function loadSiteData(siteId) {
             const tbody = table.querySelector('tbody');
             tbody.innerHTML = '';
             
-            // Load saved rows or add one default row
+            // Load saved rows only — no placeholder row when empty (use "Add new line").
             const savedRows = site.data[category] || [];
-            if (savedRows.length === 0) {
-                addDataRow(category);
-            } else {
-                savedRows.forEach((rowData) => {
-                    const hasAnyData = Array.isArray(rowData.months) && rowData.months.some((v) => Number(v) > 0);
-                    const hasDescription = String(rowData.description || '').trim().length > 0;
-                    if (!hasAnyData && !hasDescription) return;
+            savedRows.forEach((rowData) => {
+                const hasAnyData = Array.isArray(rowData.months) && rowData.months.some((v) => Number(v) > 0);
+                const hasDescription = String(rowData.description || '').trim().length > 0;
+                if (!hasAnyData && !hasDescription) return;
 
-                    addDataRow(category);
-                    const row = tbody.lastElementChild;
-                    loadRowData(row, rowData);
-                });
-                if (tbody.children.length === 0) addDataRow(category);
-            }
+                addDataRow(category);
+                const row = tbody.lastElementChild;
+                loadRowData(row, rowData);
+            });
         }
     });
     
@@ -2927,19 +2923,12 @@ window.removeEmptyRowsFromDom = function() {
     getDataInputCategoryList().forEach(category => {
         const table = document.getElementById(`${category}Table`);
         if (!table) return;
-        const rows = table.querySelectorAll('.data-row');
-        const rowsArray = Array.from(rows);
-        if (rowsArray.length <= 1) return; // Keep at least one row
-        
-        let removedCount = 0;
-        rowsArray.forEach(row => {
-            if (rowsArray.length - removedCount <= 1) return;
-            const hasData = Array.from(row.querySelectorAll('.month-input')).some(input => Number(input.value) > 0);
+        table.querySelectorAll('.data-row').forEach((row) => {
+            const hasData = Array.from(row.querySelectorAll('.month-input')).some(
+                (input) => Number(input.value) > 0
+            );
             const hasDesc = String(row.querySelector('input[type="text"]')?.value || '').trim().length > 0;
-            if (!hasData && !hasDesc) {
-                row.remove();
-                removedCount++;
-            }
+            if (!hasData && !hasDesc) row.remove();
         });
     });
 };
@@ -3058,8 +3047,10 @@ function saveCurrentSiteData() {
     }
     
     syncAllTabQuestionsToSite();
-    collectCurrentSiteDataInput(site);
-    
+    if (appState.dataHydrated && !appState.loadingSiteData) {
+        collectCurrentSiteDataInput(site);
+    }
+
     // Save financial data (already saved by updateFinancialWidget, but ensure consistency)
     if (site.financials) {
         ['bankBalance', 'savingsBalance', 'cashIn', 'cashOut', 'invoicesOwed', 'billsToPay'].forEach(widgetId => {
@@ -3832,9 +3823,6 @@ async function initializeApp() {
     }
     applyQaVisibility();
 
-    if (appState.currentSite) {
-        loadSiteData(appState.currentSite);
-    }
     if (window.carbonCalc?.calculateAllTotals) {
         window.carbonCalc.calculateAllTotals();
     }
