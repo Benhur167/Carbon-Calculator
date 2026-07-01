@@ -1385,7 +1385,16 @@ function normalizeReportingYear(rawYear) {
     return BASE_YEAR;
 }
 
-/** Calendar/financial year used for conversion factors (not row display year). */
+/** Conversion-factor year for a data row (uses the row year, not the toolbar reporting year). */
+function getRowFactorLookupYear(row) {
+    const rowYear = getRowYear(row);
+    if (rowYear != null) {
+        return normalizeReportingYear(rowYear);
+    }
+    return getReportingYear();
+}
+
+/** Calendar/financial year used for conversion-factor UI defaults (toolbar reporting year). */
 function getFactorLookupYear() {
     return getReportingYear();
 }
@@ -1531,10 +1540,7 @@ function normalizeDisplayToTonnes(value, unit) {
 
 function rowIncludedInReportingPeriod(row) {
     if (!row?.classList?.contains('data-row')) return false;
-    const rowYear = getRowYear(row);
-    if (rowYear == null) return false;
-
-    return rowYear === getReportingYear();
+    return getRowYear(row) != null;
 }
 
 /** @deprecated use rowIncludedInReportingPeriod */
@@ -1729,7 +1735,7 @@ function getFactorsBucketForYear(year, country) {
 }
 
 function getRowConversionFactor(row, tableId) {
-    const factorYear = getFactorLookupYear();
+    const factorYear = getRowFactorLookupYear(row);
     const bucket = resolveUiFactorBucket(factorYear);
     const defaults =
         (DEFAULT_CONVERSION_FACTORS[currentCountry] || DEFAULT_CONVERSION_FACTORS['UK'])[String(factorYear)] ||
@@ -1857,10 +1863,8 @@ function calculateRowCO2(row, total) {
 function calculateCategoryTotal(table) {
     const categoryName = table.id.replace('Table', '');
     let categoryTotal = 0;
-    const reportingYear = getReportingYear();
 
     table.querySelectorAll('.data-row').forEach((row) => {
-        if (getRowYear(row) !== reportingYear) return;
         categoryTotal += Number(row.dataset.co2Tonnes || 0);
     });
 
@@ -1882,20 +1886,11 @@ function updateCategorySummaryPeriodHint(categoryName) {
     const meta = window.DATA_TAB_META?.[categoryName];
     const baseEn = meta?.summaryEn || `Total ${categoryName} emissions`;
     const basePt = meta?.summaryPt || baseEn;
-    const y = getReportingYear();
-    if (getReportingPeriodType() === 'financial_uk') {
-        const en = `${baseEn} (Apr–Mar columns, ${y} factors)`;
-        const pt = `${basePt} (colunas abr–mar, fatores ${y})`;
-        summarySpan.textContent = window.appState?.currentLanguage === 'pt' ? pt : en;
-        summarySpan.setAttribute('data-en', en);
-        summarySpan.setAttribute('data-pt', pt);
-    } else {
-        const en = `${baseEn} (${y} factors)`;
-        const pt = `${basePt} (fatores ${y})`;
-        summarySpan.textContent = window.appState?.currentLanguage === 'pt' ? pt : en;
-        summarySpan.setAttribute('data-en', en);
-        summarySpan.setAttribute('data-pt', pt);
-    }
+    const en = `${baseEn} (all years)`;
+    const pt = `${basePt} (todos os anos)`;
+    summarySpan.textContent = window.appState?.currentLanguage === 'pt' ? pt : en;
+    summarySpan.setAttribute('data-en', en);
+    summarySpan.setAttribute('data-pt', pt);
 }
 
 function calculateAllTotals() {
@@ -1943,7 +1938,6 @@ function sumCategoryTonnesFromInputs(category, minYear, maxYear) {
     table.querySelectorAll('.data-row').forEach((row) => {
         const year = getRowYear(row);
         if (year == null) return;
-        if (year !== getReportingYear()) return;
         if (minYear != null && year < minYear) return;
         if (maxYear != null && year > maxYear) return;
         const conversionFactor = getRowConversionFactor(row, `${category}Table`);
