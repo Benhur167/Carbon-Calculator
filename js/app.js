@@ -227,11 +227,6 @@ function normalizeDataRowYearInputs() {
 
 function syncCanonicalBeforeSiteSave() {
     normalizeDataRowYearInputs();
-    if (window.carbonCalc?.syncCanonicalCalendarBeforeSave) {
-        window.carbonCalc.syncCanonicalCalendarBeforeSave();
-    } else if (window.carbonCalc?.syncCanonicalCalendarFromDom) {
-        window.carbonCalc.syncCanonicalCalendarFromDom();
-    }
 }
 
 function hasMeaningfulDataInputRowData(rowData) {
@@ -248,26 +243,23 @@ function extractDataInputRowFromDom(category, row) {
         parseInt(row.querySelector('.row-display-year')?.value, 10);
     if (!Number.isFinite(rowYear)) return null;
 
-    if (window.carbonCalc?.isFinancialYearAutoAddedRow?.(category, rowYear)) {
-        return null;
-    }
-
     const emissionSelect = row.querySelector('.emission-select');
     const unitSelect = row.querySelector('.row-unit-select');
 
-    const months = window.carbonCalc?.getCanonicalCalendarMonths
-        ? window.carbonCalc.getCanonicalCalendarMonths(category, rowYear)
-        : null;
-    const resolvedMonths = Array.isArray(months)
-        ? months
-        : window.carbonCalc?.readRowMonthsForSave
-          ? window.carbonCalc.readRowMonthsForSave(row)
-          : [];
+    const months = window.carbonCalc?.readRowMonthsForSave
+        ? window.carbonCalc.readRowMonthsForSave(row)
+        : (() => {
+              const out = [];
+              row.querySelectorAll('.month-input').forEach((input) => {
+                  out.push(parseFloat(input.value) || 0);
+              });
+              return out;
+          })();
 
     const rowData = {
         description: row.querySelector('input[type="text"]')?.value || '',
         year: rowYear,
-        months: Array.isArray(resolvedMonths) ? resolvedMonths : [],
+        months,
         emissionType: emissionSelect ? emissionSelect.value : null,
         unit: unitSelect
             ? unitSelect.value
@@ -284,56 +276,11 @@ function collectCategoryRowsForSite(site, category) {
         return previousRows;
     }
 
-    const snap = window.carbonCalc?.getCalendarMonthSnapshot?.();
-    const catSnap = snap?.get(category);
-
-    const domRowsByYear = new Map();
-    table.querySelectorAll('.data-row').forEach((row) => {
-        const y =
-            window.carbonCalc?.getRowYear?.(row) ??
-            parseInt(row.querySelector('.row-display-year')?.value, 10);
-        if (!Number.isFinite(y)) return;
-        if (window.carbonCalc?.isFinancialYearAutoAddedRow?.(category, y)) return;
-        domRowsByYear.set(y, row);
-    });
-
-    const allYears = new Set(domRowsByYear.keys());
-    if (catSnap) {
-        catSnap.forEach((_, y) => allYears.add(y));
-    }
-
     const nextRows = [];
-    Array.from(allYears)
-        .sort((a, b) => a - b)
-        .forEach((y) => {
-            const row = domRowsByYear.get(y);
-            const fromSnap = catSnap?.get(y);
-            const months = Array.isArray(fromSnap)
-                ? [...fromSnap]
-                : row && window.carbonCalc?.readRowMonthsForSave
-                  ? window.carbonCalc.readRowMonthsForSave(row)
-                  : [];
-
-            const emissionSelect = row?.querySelector('.emission-select');
-            const unitSelect = row?.querySelector('.row-unit-select');
-            const refRow = nextRows[0] || (domRowsByYear.size ? domRowsByYear.values().next().value : null);
-            const refEmission = refRow?.querySelector('.emission-select');
-            const refUnit = refRow?.querySelector('.row-unit-select');
-
-            const rowData = {
-                description: row?.querySelector('input[type="text"]')?.value || '',
-                year: y,
-                months,
-                emissionType: emissionSelect ? emissionSelect.value : refEmission?.value ?? null,
-                unit: unitSelect
-                    ? unitSelect.value
-                    : refUnit?.value || getPreferredUnitForCategory(category, null),
-            };
-
-            if (hasMeaningfulDataInputRowData(rowData)) {
-                nextRows.push(rowData);
-            }
-        });
+    table.querySelectorAll('.data-row').forEach((row) => {
+        const rowData = extractDataInputRowFromDom(category, row);
+        if (rowData) nextRows.push(rowData);
+    });
 
     if (categoryRowsHaveMonthData(nextRows)) {
         return nextRows;
@@ -1744,6 +1691,14 @@ async function loadUserDataFromBackend() {
                         : collectLegacyOrgPreferencesFromLocalStorage();
                 applyCurrentSiteFromOrgPrefs(mergedForSite);
             }
+
+            if (window.carbonCalc?.migrateAllSitesToReportingPeriod && appState.sites) {
+                const periodType = window.carbonCalc.getReportingPeriodType?.() || 'calendar';
+                if (window.carbonCalc.migrateAllSitesToReportingPeriod(appState.sites, periodType)) {
+                    saveSitesToLocalStorage();
+                    scheduleSiteDataSave();
+                }
+            }
         }
     } catch (err) {
         console.error('Error parsing sites data from backend:', err);
@@ -2351,7 +2306,7 @@ function addDataRow(category) {
         <td>${emissionSelectHtml}</td>
         <td><input type="text" placeholder="${placeholder}"></td>
         <td>${getUnitSelectHtml(category, defaultUnit, defaultEmissionKey)}</td>
-        <td><input type="number" class="row-display-year" value="${reportYear}" min="2019" max="2035" title="Calendar year for this row (Apr–Dec or Jan–Mar in a UK financial year)"></td>
+        <td><input type="number" class="row-display-year" value="${reportYear}" min="2019" max="2035" title="Reporting year for this row (calendar Jan–Dec or financial year starting April)"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="0"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="1"></td>
         <td><input type="number" step="0.01" min="0" class="month-input" data-month="2"></td>
@@ -2732,9 +2687,6 @@ function attachRowListeners(row) {
     
     // Save on any input change
     const saveData = () => {
-        if (window.carbonCalc?.syncCanonicalCalendarBeforeSave) {
-            window.carbonCalc.syncCanonicalCalendarBeforeSave();
-        }
         if (window.carbonCalc && window.carbonCalc.calculateRowTotal) {
             window.carbonCalc.calculateRowTotal(row);
             if (window.carbonCalc.calculateCategoryTotal) {
@@ -2744,7 +2696,7 @@ function attachRowListeners(row) {
             calculateRowTotal(row);
             calculateCategoryTotal(row.closest('table'));
         }
-        saveCurrentSiteData(); // Save immediately on change
+        saveCurrentSiteData();
         if (typeof updateInputEmissionsPreview === 'function') {
             updateInputEmissionsPreview();
         }
@@ -2906,30 +2858,15 @@ function loadSiteData(siteId) {
             if (savedRows.length === 0) {
                 addDataRow(category);
             } else {
-                let maxFullYear = -Infinity;
-                savedRows.forEach((rowData) => {
-                    const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
-                    if (hasDataAfterMarch && rowData.year > maxFullYear) {
-                        maxFullYear = rowData.year;
-                    }
-                });
-
                 savedRows.forEach((rowData) => {
                     const hasAnyData = Array.isArray(rowData.months) && rowData.months.some((v) => Number(v) > 0);
                     const hasDescription = String(rowData.description || '').trim().length > 0;
-                    if (!hasAnyData && !hasDescription) return; // Completely empty
-
-                    // Skip "ghost" rows: older years with no description and only Jan-Mar data
-                    const hasDataAfterMarch = Array.isArray(rowData.months) && rowData.months.slice(3).some((v) => Number(v) > 0);
-                    if (!hasDataAfterMarch && !hasDescription && rowData.year <= maxFullYear) {
-                        return;
-                    }
+                    if (!hasAnyData && !hasDescription) return;
 
                     addDataRow(category);
                     const row = tbody.lastElementChild;
                     loadRowData(row, rowData);
                 });
-                // If every saved row was empty, fall back to a single blank row
                 if (tbody.children.length === 0) addDataRow(category);
             }
         }
@@ -2954,18 +2891,12 @@ function loadSiteData(siteId) {
             : getActiveDataInputTabKey();
     updateTabQuestionUI(notesCategory);
 
-    if (window.carbonCalc?.loadCanonicalCalendarFromSiteData) {
-        window.carbonCalc.loadCanonicalCalendarFromSiteData(site);
-    }
     if (window.carbonCalc?.refreshDataTableMonthHeaders) {
         window.carbonCalc.refreshDataTableMonthHeaders();
     }
     normalizeDataRowYearInputs();
     if (window.carbonCalc?.syncFinancialYearViewAfterDataLoad) {
         window.carbonCalc.syncFinancialYearViewAfterDataLoad();
-        if (window.carbonCalc?.getReportingPeriodType?.() === 'financial_uk' && typeof window.removeEmptyRowsFromDom === 'function') {
-            window.removeEmptyRowsFromDom();
-        }
     } else if (window.carbonCalc?.refreshFinancialYearMonthHighlights) {
         window.carbonCalc.refreshFinancialYearMonthHighlights();
     }

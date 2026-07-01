@@ -244,6 +244,9 @@
         if (global.carbonCalc?.getReportingPeriodType) {
             out.reportingPeriodType = global.carbonCalc.getReportingPeriodType();
         }
+        if (global.carbonCalc?.getStoredDataRowFormat) {
+            out.dataRowFormat = global.carbonCalc.getStoredDataRowFormat();
+        }
         const periodTypeSel = document.getElementById('reportingPeriodTypeSelect');
         if (periodTypeSel) {
             out.reportingPeriodType = periodTypeSel.value === 'financial_uk' ? 'financial_uk' : 'calendar';

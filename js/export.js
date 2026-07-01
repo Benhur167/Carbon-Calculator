@@ -1637,15 +1637,6 @@ function _collectInputEmissionExportRows() {
         if (!table) return;
 
         table.querySelectorAll('.data-row').forEach((row) => {
-            if (window.carbonCalc.isFinancialYearAutoAddedRow) {
-                const year =
-                    window.carbonCalc.getRowYear?.(row) ??
-                    parseInt(row.querySelector('.row-display-year')?.value, 10);
-                if (window.carbonCalc.isFinancialYearAutoAddedRow(catKey, year)) {
-                    return;
-                }
-            }
-
             const inputTotal = window.carbonCalc.getInputRowBaseTotal
                 ? window.carbonCalc.getInputRowBaseTotal(row, catKey)
                 : Array.from(row.querySelectorAll('.month-input')).reduce(
@@ -1686,11 +1677,6 @@ function printInputEmissionsReportPDF() {
         if (!jsPDFCtor) return;
         if (!_ensureCarbonCalc()) return;
 
-        if (window.carbonCalc.syncFinancialYearViewAfterDataLoad) {
-            window.carbonCalc.syncFinancialYearViewAfterDataLoad();
-        } else if (window.carbonCalc.syncCanonicalCalendarBeforeSave) {
-            window.carbonCalc.syncCanonicalCalendarBeforeSave();
-        }
         if (window.carbonCalc.calculateAllTotals) {
             window.carbonCalc.calculateAllTotals();
         }
