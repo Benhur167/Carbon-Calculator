@@ -10,7 +10,12 @@ Signin at https://share.streamlit.io/
 ---
 
 ## 👥 My Role & Contributions
-As a contributor to this project, I was responsible for quality assurance, requirements verification, and product mapping:
+
+**About the Project:**  
+The Carbon Calculator is a professional web-based tool designed to track, calculate, and report greenhouse gas emissions in real-time under the GHG Protocol. Built with a modern Xero-style interface, it supports multi-building/site tracking, bilingual toggle, automatic emission conversions, and instant PDF/Excel report exports.
+
+**My Role:**  
+As a core contributor, I drove quality assurance, requirement verification, and product feature mapping:
 * **Quality Assurance & Verification**: Led the testing process to verify that all functional requirements were correctly implemented and that the site remained stable after updates.
 * **Requirements Analysis**: Reviewed system specifications to ensure complete alignment between client requirements and final implementation.
 * **Client Feedback Integration**: Managed feedback loops, validating that client requests were accurately addressed by developers.
