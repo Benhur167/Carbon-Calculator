@@ -9,6 +9,15 @@ Signin at https://share.streamlit.io/
 
 ---
 
+## 👥 My Role & Contributions
+As a contributor to this project, I was responsible for quality assurance, requirements verification, and product mapping:
+* **Quality Assurance & Verification**: Led the testing process to verify that all functional requirements were correctly implemented and that the site remained stable after updates.
+* **Requirements Analysis**: Reviewed system specifications to ensure complete alignment between client requirements and final implementation.
+* **Client Feedback Integration**: Managed feedback loops, validating that client requests were accurately addressed by developers.
+* **Feature Roadmap & Planning**: Scoped out future features, including planning for an AI chatbot and a receipt-to-data entry automation pipeline.
+
+---
+
 ## 🌐 Deploy Online (Recommended!)
 
 **NEW:** Deploy your calculator online in 5 minutes!
